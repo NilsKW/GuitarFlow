@@ -53,36 +53,27 @@
     });
     var watchdog = setTimeout(function() {
       if (document.getElementById('boot'))
-        bootErr('Timed out', 'Could not load React from unpkg.com after 15s. Check your internet connection.');
+        bootErr('Timed out', 'Could not load React from cdn.jsdelivr.net after 15s. Check your internet connection.');
     }, 15000);
   </script>
 
-  <!-- React 18 (plain UMD builds, no Babel needed) -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"
-    onload="document.getElementById('boot-sub').textContent='Fetching ReactDOM…'"
-    onerror="bootErr('Network error','Could not load React from unpkg.com')"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-    onload="document.getElementById('boot-sub').textContent='Starting app…'"
-    onerror="bootErr('Network error','Could not load ReactDOM from unpkg.com')"></script>
-
-  <!-- GuitarFlow app — pre-compiled plain JS, no Babel or build tools needed -->
+  <!-- React 18 + ReactDOM loaded sequentially via JS to guarantee order -->
   <script>
-    try {
-      var _React = React;
-      var useState = React.useState.bind(React);
-      var useEffect = React.useEffect.bind(React);
-      var useRef = React.useRef.bind(React);
-      var useCallback = React.useCallback.bind(React);
-      var useMemo = React.useMemo.bind(React);
-    } catch(e) {
-      bootErr('React not loaded', String(e));
+    function loadScript(src, cb, err) {
+      var s = document.createElement('script');
+      s.src = src; s.onload = cb; s.onerror = err;
+      document.head.appendChild(s);
     }
-  </script>
-  <script>
-    try {
+    function startApp() {
+      var useState    = React.useState.bind(React);
+      var useEffect   = React.useEffect.bind(React);
+      var useRef      = React.useRef.bind(React);
+      var useCallback = React.useCallback.bind(React);
+      var useMemo     = React.useMemo.bind(React);
+      document.getElementById('boot-sub').textContent = 'Starting app…';
+      try {
 "use strict";
 // ─── PERSISTENT STORAGE ─────────────────────────────────────────────────────
-// localStorage-based persistence, works offline in any browser / PWA.
 function storageSet(key, value) {
     try {
         localStorage.setItem("gf_" + key, JSON.stringify(value));
@@ -691,24 +682,60 @@ current, setCurrent, secondsLeft, setSecondsLeft, running, setRunning, hasStarte
             setSecondsLeft(tasks[next].minutes * 60);
         }
     };
+    // Wall-clock based timer — survives phone lock/background suspension.
+    // Instead of counting ticks (which stop when JS is frozen), we record the
+    // real timestamp when the timer starts, and on each wake/tick we compute
+    // how much real time has actually passed.
+    const startWallRef = useRef(null); // Date.now() when current run segment started
+    const startSecsRef = useRef(0); // secondsLeft value at that moment
+    const startElapsedRef = useRef(0); // elapsedRef.current at that moment
     useEffect(() => {
         if (running) {
+            // Snapshot wall clock and current values when we (re)start
+            startWallRef.current = Date.now();
+            startSecsRef.current = secondsLeft;
+            startElapsedRef.current = elapsedRef.current;
             intervalRef.current = setInterval(() => {
-                setSecondsLeft(s => {
-                    elapsedRef.current += 1;
-                    if (s <= 1) {
-                        clearInterval(intervalRef.current);
-                        advanceRef.current();
-                        return 0;
-                    }
-                    return s - 1;
-                });
-            }, 1000);
+                const realElapsed = Math.floor((Date.now() - startWallRef.current) / 1000);
+                const newSecsLeft = startSecsRef.current - realElapsed;
+                const newElapsed = startElapsedRef.current + realElapsed;
+                elapsedRef.current = newElapsed;
+                if (newSecsLeft <= 0) {
+                    clearInterval(intervalRef.current);
+                    setSecondsLeft(0);
+                    advanceRef.current();
+                }
+                else {
+                    setSecondsLeft(newSecsLeft);
+                }
+            }, 500); // poll every 500ms so we catch the boundary promptly
         }
         else {
             clearInterval(intervalRef.current);
         }
         return () => clearInterval(intervalRef.current);
+    }, [running, current]);
+    // Visibility change handler: when phone unlocks / tab comes back to foreground,
+    // immediately recalculate from wall clock so the display snaps to the correct time.
+    useEffect(() => {
+        const onVisible = () => {
+            if (!running || startWallRef.current === null)
+                return;
+            const realElapsed = Math.floor((Date.now() - startWallRef.current) / 1000);
+            const newSecsLeft = startSecsRef.current - realElapsed;
+            const newElapsed = startElapsedRef.current + realElapsed;
+            elapsedRef.current = newElapsed;
+            if (newSecsLeft <= 0) {
+                clearInterval(intervalRef.current);
+                setSecondsLeft(0);
+                advanceRef.current();
+            }
+            else {
+                setSecondsLeft(newSecsLeft);
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
     }, [running, current]);
     const skip = () => { clearInterval(intervalRef.current); advanceRef.current(); };
     // Urgency pulse when ≤10s left
@@ -1079,17 +1106,31 @@ function App() {
         tab === "active" && React.createElement(ActiveSessionScreen, { tasks: tasks, onFinish: endSession, onBackToMenu: backToMenu, audioCtx: audioCtx, masterGainRef: masterGainRef, onCommitStats: commitStats, isVisible: tab === "active", current: sessionCurrent, setCurrent: setSessionCurrent, secondsLeft: sessionSecondsLeft, setSecondsLeft: setSessionSecondsLeft, running: sessionRunning, setRunning: setSessionRunning, hasStarted: sessionHasStarted, setHasStarted: setSessionHasStarted, done: sessionDone, setDone: setSessionDone, elapsedRef: sessionElapsedRef, committedRef: sessionCommittedRef })));
 }
 
+        var root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App, null));
 
-      var root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(React.createElement(App, null));
+        // Success — hide boot screen
+        clearTimeout(watchdog);
+        var b = document.getElementById('boot');
+        if (b) b.style.display = 'none';
+      } catch(e) {
+        bootErr('Startup error', (e && e.stack) || String(e));
+      }
+    } // end startApp
 
-      // Success — hide boot screen
-      clearTimeout(watchdog);
-      var b = document.getElementById('boot');
-      if (b) b.style.display = 'none';
-    } catch(e) {
-      bootErr('Startup error', (e && e.stack) || String(e));
-    }
+    // Chain: load React → load ReactDOM → startApp
+    loadScript(
+      'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js',
+      function() {
+        document.getElementById('boot-sub').textContent = 'Fetching ReactDOM…';
+        loadScript(
+          'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js',
+          function() { startApp(); },
+          function() { bootErr('Network error', 'Could not load ReactDOM from cdn.jsdelivr.net'); }
+        );
+      },
+      function() { bootErr('Network error', 'Could not load React from cdn.jsdelivr.net'); }
+    );
   </script>
 
   <script>
