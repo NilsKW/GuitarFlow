@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F0F0F" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GuitarFlow" />
+  <title>GuitarFlow</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #0F0F0F;
+      height: 100%;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: 100%;
+    }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { display: none; }
+    input, textarea { color-scheme: dark; font-family: inherit; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Boot screen: visible until React mounts. Prevents silent black screen. -->
+  <div id="boot" style="position:fixed;inset:0;background:#0F0F0F;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:system-ui,sans-serif;color:#C8873A;padding:24px;text-align:center;z-index:9999">
+    <div style="width:36px;height:36px;border:3px solid #2A2008;border-top-color:#C8873A;border-radius:50%;animation:spin 0.9s linear infinite;margin-bottom:16px"></div>
+    <div id="boot-msg" style="font-size:14px;font-weight:600">Loading GuitarFlow…</div>
+    <div id="boot-sub" style="font-size:11px;color:#6B5A3A;margin-top:6px">Fetching React</div>
+    <pre id="boot-err" style="display:none;margin-top:16px;background:#1A0808;border:1px solid #5A1A1A;border-radius:8px;padding:12px;color:#F87171;font-size:11px;text-align:left;max-width:360px;white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow-y:auto"></pre>
+  </div>
+
+  <script>
+    function bootErr(title, detail) {
+      var s = document.getElementById('boot-msg');
+      s.textContent = title; s.style.color = '#F87171';
+      document.getElementById('boot-sub').textContent = '';
+      var e = document.getElementById('boot-err');
+      e.style.display = 'block'; e.textContent = detail || '';
+      document.querySelector('#boot .spin') && (document.querySelector('#boot div').style.display = 'none');
+    }
+    window.onerror = function(msg, src, line, col, err) {
+      bootErr('Error', msg + '\n\nLine ' + line + (err && err.stack ? '\n\n' + err.stack : ''));
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      bootErr('Error', (e.reason && e.reason.message) || String(e.reason));
+    });
+    var watchdog = setTimeout(function() {
+      if (document.getElementById('boot'))
+        bootErr('Timed out', 'Could not load React from unpkg.com after 15s. Check your internet connection.');
+    }, 15000);
+  </script>
+
+  <!-- React 18 (plain UMD builds, no Babel needed) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"
+    onload="document.getElementById('boot-sub').textContent='Fetching ReactDOM…'"
+    onerror="bootErr('Network error','Could not load React from unpkg.com')"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+    onload="document.getElementById('boot-sub').textContent='Starting app…'"
+    onerror="bootErr('Network error','Could not load ReactDOM from unpkg.com')"></script>
+
+  <!-- GuitarFlow app — pre-compiled plain JS, no Babel or build tools needed -->
+  <script>
+    try {
+      var _React = React;
+      var useState = React.useState.bind(React);
+      var useEffect = React.useEffect.bind(React);
+      var useRef = React.useRef.bind(React);
+      var useCallback = React.useCallback.bind(React);
+      var useMemo = React.useMemo.bind(React);
+    } catch(e) {
+      bootErr('React not loaded', String(e));
+    }
+  </script>
+  <script>
+    try {
+"use strict";
+// ─── PERSISTENT STORAGE ─────────────────────────────────────────────────────
+// localStorage-based persistence, works offline in any browser / PWA.
+function storageSet(key, value) {
+    try {
+        localStorage.setItem("gf_" + key, JSON.stringify(value));
+    }
+    catch (_a) { }
+}
+async function storageGet(key) {
+    try {
+        const v = localStorage.getItem("gf_" + key);
+        return v ? JSON.parse(v) : null;
+    }
+    catch (_a) {
+        return null;
+    }
+}
+// Load a value once on mount; writes handled manually for full control.
+function usePersisted(key, defaultValue) {
+    const [value, setValue] = useState(defaultValue);
+    const [loaded, setLoaded] = useState(false);
+    useEffect(() => {
+        storageGet(key).then(v => {
+            if (v !== null)
+                setValue(v);
+            setLoaded(true);
+        });
+    }, [key]);
+    const set = useCallback((updater) => {
+        setValue(prev => {
+            const next = typeof updater === "function" ? updater(prev) : updater;
+            storageSet(key, next);
+            return next;
+        });
+    }, [key]);
+    return [value, set, loaded];
+}
+// ─── STATS SCREEN ─────────────────────────────────────────────────────────────
+// stats shape: { [exerciseId]: { name, icon, totalSec, sessions } }
+function StatsScreen({ stats, exercises, onClear }) {
+    var _a;
+    const [confirmClear, setConfirmClear] = useState(false);
+    const entries = Object.values(stats)
+        .filter(s => s.totalSec > 0)
+        .sort((a, b) => b.totalSec - a.totalSec);
+    const maxSec = ((_a = entries[0]) === null || _a === void 0 ? void 0 : _a.totalSec) || 1;
+    function fmtSec(s) {
+        if (s < 60)
+            return `${s}s`;
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        if (h > 0)
+            return `${h}h ${m}m`;
+        return `${m}m ${s % 60}s`;
+    }
+    if (entries.length === 0)
+        return (React.createElement("div", { style: { textAlign: "center", padding: "60px 24px", color: "#3A3A3A" } },
+            React.createElement("div", { style: { fontSize: 46, marginBottom: 12 } }, "\uD83D\uDCCA"),
+            React.createElement("div", { style: { fontSize: 14, lineHeight: 1.6 } },
+                "No stats yet.",
+                React.createElement("br", null),
+                "Complete at least one exercise to start tracking.")));
+    const totalSessionSec = entries.reduce((s, e) => s + e.totalSec, 0);
+    const totalSessions = Math.max(...entries.map(e => e.sessions));
+    return (React.createElement("div", { style: { padding: "12px 16px 40px", display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", maxHeight: "calc(100vh - 110px)" } },
+        React.createElement("div", { style: { display: "flex", gap: 8 } }, [
+            { label: "Total Practice", value: fmtSec(totalSessionSec) },
+            { label: "Exercises Done", value: entries.length },
+            { label: "Sessions", value: totalSessions },
+        ].map(s => (React.createElement("div", { key: s.label, style: { flex: 1, background: "#151208", border: "1px solid #2A1E08", borderRadius: 10, padding: "10px 8px", textAlign: "center" } },
+            React.createElement("div", { style: { fontSize: 15, fontWeight: 800, color: "#C8873A", fontFamily: "monospace" } }, s.value),
+            React.createElement("div", { style: { fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "#4A4A5A", marginTop: 3 } }, s.label))))),
+        React.createElement("div", { style: { background: "#0D0D0D", border: "1px solid #1A1A1A", borderRadius: 12, overflow: "hidden" } },
+            React.createElement("div", { style: { padding: "10px 14px", borderBottom: "1px solid #1A1A1A" } },
+                React.createElement("span", { style: { fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: "#4A4A5A" } }, "Most Practised")),
+            entries.map((e, i) => (React.createElement("div", { key: e.exerciseId || i, style: { padding: "10px 14px", borderBottom: "1px solid #111" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 5 } },
+                    React.createElement("span", { style: { fontSize: 15, flexShrink: 0 } }, e.icon),
+                    React.createElement("span", { style: { flex: 1, fontSize: 12, fontWeight: 600, color: "#F5EDD6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.name),
+                    React.createElement("span", { style: { fontSize: 11, fontFamily: "monospace", color: "#C8873A", flexShrink: 0 } }, fmtSec(e.totalSec))),
+                React.createElement("div", { style: { height: 4, background: "#1A1A1A", borderRadius: 2, overflow: "hidden" } },
+                    React.createElement("div", { style: { height: "100%", width: `${Math.round((e.totalSec / maxSec) * 100)}%`, background: i === 0 ? "linear-gradient(90deg,#6B3A0A,#C8873A)" : "linear-gradient(90deg,#2A2A3A,#4A4A6A)", borderRadius: 2, transition: "width 0.6s ease-out" } })),
+                React.createElement("div", { style: { fontSize: 10, color: "#4A4A5A", marginTop: 4 } },
+                    e.sessions,
+                    " session",
+                    e.sessions !== 1 ? "s" : ""))))),
+        !confirmClear ? (React.createElement("button", { onClick: () => setConfirmClear(true), style: { background: "none", border: "1px solid #3A1A1A", borderRadius: 8, padding: "9px", color: "#F87171", fontSize: 12, cursor: "pointer", textAlign: "center" } }, "Reset All Statistics")) : (React.createElement("div", { style: { background: "#1A0A0A", border: "1px solid #5A1A1A", borderRadius: 10, padding: "14px 16px" } },
+            React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: "#F87171", marginBottom: 4 } }, "Reset all statistics?"),
+            React.createElement("div", { style: { fontSize: 11, color: "#6A4A4A", marginBottom: 12 } }, "This will permanently delete all your practice history. This cannot be undone."),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                React.createElement("button", { onClick: () => setConfirmClear(false), style: { flex: 1, background: "#222", border: "1px solid #333", borderRadius: 8, padding: "9px", color: "#888", fontSize: 12, cursor: "pointer" } }, "Cancel"),
+                React.createElement("button", { onClick: () => { onClear(); setConfirmClear(false); }, style: { flex: 1, background: "#5A0A0A", border: "1px solid #8A1A1A", borderRadius: 8, padding: "9px", color: "#F87171", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Yes, Reset"))))));
+}
+// ─── AUDIO ENGINE ─────────────────────────────────────────────────────────────
+// Synthesise sounds via Web Audio API – no external files needed
+function createAudioContext() {
+    try {
+        return new (window.AudioContext || window.webkitAudioContext)();
+    }
+    catch (_a) {
+        return null;
+    }
+}
+// Warm "ding-dong" bell for exercise complete
+function playExerciseDone(ctx, masterGain) {
+    if (!ctx)
+        return;
+    const dest = masterGain || ctx.destination;
+    const t = ctx.currentTime;
+    const freqs = [880, 660];
+    freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(dest);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t + i * 0.22);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.98, t + i * 0.22 + 0.4);
+        gain.gain.setValueAtTime(0, t + i * 0.22);
+        gain.gain.linearRampToValueAtTime(0.28, t + i * 0.22 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.22 + 1.1);
+        osc.start(t + i * 0.22);
+        osc.stop(t + i * 0.22 + 1.2);
+    });
+}
+// Fender Rhodes e-piano — Bb sus4 chord (Bb2, F3, Eb4, Bb4)
+// Rhodes tone model: two detuned sine oscillators (chorus) + a bell partial
+// (sine at 2x freq, decays faster) + a tremolo LFO, all through a soft limiter.
+function playSessionDone(ctx, extMaster) {
+    if (!ctx)
+        return;
+    const t = ctx.currentTime;
+    // Bb sus4: Bb2, F3, Eb4, Bb4
+    const notes = [116.54, 174.61, 311.13, 466.16];
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.7, t);
+    masterGain.connect(extMaster || ctx.destination);
+    // Tremolo LFO (5 Hz, depth 15%) — classic Rhodes wobble
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.frequency.setValueAtTime(5, t);
+    lfoGain.gain.setValueAtTime(0.15, t);
+    lfo.connect(lfoGain);
+    lfo.start(t);
+    lfo.stop(t + 4);
+    notes.forEach((freq, i) => {
+        const strum = i * 0.055; // slight strum delay
+        const attackEnd = t + strum + 0.008;
+        const decayEnd = t + strum + 3.5;
+        // ── Fundamental (two slightly detuned sines for chorus) ──
+        [-0.5, 0.5].forEach(detune => {
+            const osc = ctx.createOscillator();
+            const env = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(freq * Math.pow(2, detune / 1200), t + strum);
+            // Bell-curve amplitude: fast attack, slow exponential decay
+            env.gain.setValueAtTime(0, t + strum);
+            env.gain.linearRampToValueAtTime(0.18, attackEnd);
+            env.gain.exponentialRampToValueAtTime(0.001, decayEnd);
+            // Hook up tremolo: lfoGain modulates env amplitude
+            lfoGain.connect(env.gain);
+            osc.connect(env);
+            env.connect(masterGain);
+            osc.start(t + strum);
+            osc.stop(decayEnd + 0.05);
+        });
+        // ── Bell partial (2nd harmonic, decays 3× faster — gives Rhodes "clank") ──
+        const bell = ctx.createOscillator();
+        const bellEnv = ctx.createGain();
+        bell.type = "sine";
+        bell.frequency.setValueAtTime(freq * 2, t + strum);
+        bellEnv.gain.setValueAtTime(0, t + strum);
+        bellEnv.gain.linearRampToValueAtTime(0.07, attackEnd);
+        bellEnv.gain.exponentialRampToValueAtTime(0.001, t + strum + 0.9);
+        bell.connect(bellEnv);
+        bellEnv.connect(masterGain);
+        bell.start(t + strum);
+        bell.stop(t + strum + 1);
+    });
+}
+// ─── DEFAULT DATA ─────────────────────────────────────────────────────────────
+const DEFAULT_CATEGORIES = [
+    { id: "cat-warmup", name: "Warm-Up", color: "#C8873A" },
+    { id: "cat-scales", name: "Scales", color: "#4FC3F7" },
+    { id: "cat-chords", name: "Chords", color: "#A78BFA" },
+    { id: "cat-tech", name: "Technique", color: "#F87171" },
+    { id: "cat-improv", name: "Improv", color: "#34D399" },
+    { id: "cat-song", name: "Song Work", color: "#FBBF24" },
+    { id: "cat-ear", name: "Ear Training", color: "#FB923C" },
+];
+const DEFAULT_EXERCISES = [
+    { id: "warm1", categoryId: "cat-warmup", name: "Finger Stretches", defaultMin: 3, icon: "✋", description: "Gently stretch each finger to prevent injuries." },
+    { id: "warm2", categoryId: "cat-warmup", name: "Chromatic Crawl", defaultMin: 5, icon: "🐛", description: "Play 1-2-3-4 across all strings, ascending and descending." },
+    { id: "warm3", categoryId: "cat-warmup", name: "Spider Exercise", defaultMin: 5, icon: "🕷️", description: "Cross-string pattern to build independence." },
+    { id: "scale1", categoryId: "cat-scales", name: "Pentatonic (A minor)", defaultMin: 10, icon: "🎵", description: "Run the Am pentatonic in all 5 positions." },
+    { id: "scale2", categoryId: "cat-scales", name: "Major Scale Modes", defaultMin: 10, icon: "🎶", description: "Practice Ionian, Dorian, Phrygian across the neck." },
+    { id: "scale3", categoryId: "cat-scales", name: "Blues Scale", defaultMin: 8, icon: "🎸", description: "Add the b5 note to your pentatonic for bluesy feel." },
+    { id: "chord1", categoryId: "cat-chords", name: "Barre Chord Transitions", defaultMin: 10, icon: "🤘", description: "Switch between F, B, and Bm shapes fluidly." },
+    { id: "chord2", categoryId: "cat-chords", name: "Open Chord Shapes", defaultMin: 7, icon: "🔵", description: "Clean up G, C, D, Em, Am transitions." },
+    { id: "chord3", categoryId: "cat-chords", name: "Jazz Voicings", defaultMin: 12, icon: "🎷", description: "Learn ii-V-I progressions with 7th chord voicings." },
+    { id: "riff1", categoryId: "cat-tech", name: "Alternate Picking", defaultMin: 10, icon: "⚡", description: "Strict down-up picking at various tempos with metronome." },
+    { id: "riff2", categoryId: "cat-tech", name: "Legato & Hammer-Ons", defaultMin: 8, icon: "🔨", description: "Build smooth phrasing with hammer-ons and pull-offs." },
+    { id: "riff3", categoryId: "cat-tech", name: "Bending & Vibrato", defaultMin: 8, icon: "〰️", description: "Accurate bends to pitch, controlled vibrato width and speed." },
+    { id: "riff4", categoryId: "cat-tech", name: "Palm Muting", defaultMin: 7, icon: "🤚", description: "Control the mute tightness across different rhythms." },
+    { id: "improv1", categoryId: "cat-improv", name: "Jam over Backing Track", defaultMin: 15, icon: "🎤", description: "Free improvisation over a chosen key backing track." },
+    { id: "improv2", categoryId: "cat-improv", name: "Solo Construction", defaultMin: 12, icon: "🌟", description: "Build a solo with motif, development, and climax." },
+    { id: "song1", categoryId: "cat-song", name: "Riff Memorization", defaultMin: 15, icon: "📝", description: "Learn a new riff from memory, no tabs." },
+    { id: "song2", categoryId: "cat-song", name: "Full Run-Through", defaultMin: 20, icon: "▶️", description: "Play the song top to bottom without stopping." },
+    { id: "ear1", categoryId: "cat-ear", name: "Interval Recognition", defaultMin: 10, icon: "👂", description: "Identify intervals by ear, then find them on the neck." },
+];
+const ICONS = ["🎸", "🎵", "🎶", "🎤", "🎷", "🎺", "🥁", "🎹", "⚡", "🔥", "🌟", "💥", "🤘", "✋", "🕷️", "🐛", "🔨", "〰️", "🤚", "🔵", "📝", "▶️", "👂", "🏆", "🎯", "⚙️", "🧠", "💡", "🎯", "🎼"];
+function formatTime(s) { const m = Math.floor(s / 60); return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
+function formatTotalMin(s) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m} min`; }
+function uid() { return `id-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
+// Extract YouTube video ID from any common URL format
+function extractYouTubeId(url) {
+    if (!url)
+        return null;
+    const patterns = [
+        /(?:youtube\.com\/watch\?.*v=)([A-Za-z0-9_-]{11})/,
+        /(?:youtu\.be\/)([A-Za-z0-9_-]{11})/,
+        /(?:youtube\.com\/embed\/)([A-Za-z0-9_-]{11})/,
+        /(?:youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/,
+    ];
+    for (const p of patterns) {
+        const m = url.match(p);
+        if (m)
+            return m[1];
+    }
+    return null;
+}
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+const C = { bg: "#0F0F0F", surface: "#151515", border: "#1E1E1E", amber: "#C8873A", amberDim: "#6B3A0A", cream: "#F5EDD6", muted: "#4A4A5A", faint: "#1A1A1A" };
+const base = {
+    app: { background: C.bg, minHeight: "100vh", maxWidth: 430, margin: "0 auto", fontFamily: "'Segoe UI', system-ui, sans-serif", color: C.cream, position: "relative" },
+    header: { background: "linear-gradient(180deg,#1A1208 0%,#0F0F0F 100%)", padding: "16px 20px 12px", borderBottom: "1px solid #2A2008", display: "flex", alignItems: "center", justifyContent: "space-between" },
+    headerLeft: { display: "flex", flexDirection: "column", gap: 2 },
+    headerTitle: { fontSize: 17, fontWeight: 700, color: C.amber, letterSpacing: "0.04em", textTransform: "uppercase", margin: 0 },
+    headerSub: { fontSize: 10, color: "#6B5A3A", letterSpacing: "0.12em", textTransform: "uppercase", margin: 0 },
+    iconBtn: (col) => ({ background: "none", border: "none", color: col || C.muted, fontSize: 18, cursor: "pointer", padding: "4px 6px", borderRadius: 6, display: "flex", alignItems: "center" }),
+    navBar: { display: "flex", background: "#0A0A0A", borderBottom: `1px solid ${C.border}` },
+    navBtn: (a) => ({ flex: 1, padding: "11px 6px", background: "none", border: "none", borderBottom: a ? `2px solid ${C.amber}` : "2px solid transparent", color: a ? C.amber : C.muted, fontSize: 10, fontWeight: a ? 700 : 500, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer" }),
+    scrollArea: (pb) => ({ padding: `8px 16px ${pb || 100}px`, display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", maxHeight: "calc(100vh - 175px)" }),
+    catChip: (a, col) => ({ padding: "5px 13px", borderRadius: 20, border: `1px solid ${a ? col : "#2A2A2A"}`, background: a ? col + "22" : "transparent", color: a ? col : "#888", fontSize: 12, fontWeight: a ? 600 : 400, cursor: "pointer", whiteSpace: "nowrap" }),
+    exCard: (col) => ({ background: C.surface, border: `1px solid ${C.border}`, borderLeft: `3px solid ${col}`, borderRadius: 10, padding: "11px 13px", display: "flex", alignItems: "center", gap: 11, cursor: "pointer", userSelect: "none" }),
+    pillBtn: (primary) => ({ padding: primary ? "13px" : "10px 16px", borderRadius: 10, border: primary ? "none" : `1px solid #2A2A2A`, background: primary ? `linear-gradient(135deg,${C.amber},#A86020)` : C.surface, color: primary ? "#0F0F0F" : "#888", fontSize: primary ? 14 : 12, fontWeight: primary ? 800 : 500, cursor: "pointer", letterSpacing: "0.06em", width: primary ? "100%" : "auto" }),
+    input: { background: "#1A1A1A", border: `1px solid #2A2A2A`, borderRadius: 8, padding: "9px 12px", color: C.cream, fontSize: 13, width: "100%", boxSizing: "border-box", outline: "none", fontFamily: "inherit" },
+    label: { fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted, marginBottom: 5, display: "block" },
+    sectionTitle: { fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: C.muted, padding: "16px 16px 6px", borderTop: `1px solid ${C.faint}` },
+    card: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" },
+    row: { display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", borderBottom: `1px solid ${C.faint}` },
+};
+// ─── EXERCISE COMPLETE FLASH ──────────────────────────────────────────────────
+function FlashOverlay({ show, color }) {
+    return (React.createElement("div", { style: { position: "fixed", inset: 0, pointerEvents: "none", zIndex: 999,
+            background: color || "#C8873A", opacity: show ? 0.22 : 0,
+            transition: show ? "opacity 0.05s" : "opacity 0.6s ease-out" } }));
+}
+// ─── YOUTUBE PLAYER ──────────────────────────────────────────────────────────
+function YouTubeCard({ videoId }) {
+    if (!videoId)
+        return null;
+    const thumb = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    return (React.createElement("div", { style: { borderRadius: 12, overflow: "hidden", border: "1px solid #2A1E08", background: "#0A0800" } },
+        React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer", style: { display: "block", position: "relative", textDecoration: "none" } },
+            React.createElement("img", { src: thumb, alt: "Reference video", style: { width: "100%", display: "block", aspectRatio: "16/9", objectFit: "cover", filter: "brightness(0.65)" }, onError: e => { e.target.style.minHeight = "120px"; e.target.style.background = "#1A1208"; } }),
+            React.createElement("div", { style: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" } },
+                React.createElement("div", { style: { width: 56, height: 56, borderRadius: "50%", background: "#FF0000ee", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 24px #000a" } },
+                    React.createElement("svg", { width: "22", height: "22", viewBox: "0 0 22 22", fill: "white" },
+                        React.createElement("polygon", { points: "7,3 19,11 7,19" })))),
+            React.createElement("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, padding: "10px 12px 8px", background: "linear-gradient(0deg,#000e 0%,transparent 100%)", display: "flex", alignItems: "center" } },
+                React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: "#fff", flex: 1 } }, "Reference Video"),
+                React.createElement("span", { style: { fontSize: 10, color: "#ffffff99" } }, "Opens YouTube \u2197")))));
+}
+// ─── SESSION COMPLETE ANIMATION ───────────────────────────────────────────────
+function Spark({ x, y, color, delay }) {
+    return (React.createElement("div", { style: { position: "absolute", left: x, top: y, width: 6, height: 6,
+            borderRadius: "50%", background: color, pointerEvents: "none",
+            animation: `spark ${0.9 + Math.random() * 0.4}s ease-out ${delay}s forwards` } }));
+}
+function Fireworks({ active }) {
+    const sparks = useRef([]);
+    if (sparks.current.length === 0) {
+        const cols = [C.amber, "#F87171", "#4FC3F7", "#34D399", "#FBBF24", "#A78BFA", "#FB923C"];
+        for (let i = 0; i < 60; i++) {
+            sparks.current.push({ id: i, x: `${10 + Math.random() * 80}%`, y: `${5 + Math.random() * 70}%`, color: cols[i % cols.length], delay: Math.random() * 1.2 });
+        }
+    }
+    if (!active)
+        return null;
+    return (React.createElement("div", { style: { position: "fixed", inset: 0, pointerEvents: "none", zIndex: 100 } },
+        React.createElement("style", null, `
+        @keyframes spark {
+          0%   { transform: scale(0) translate(0,0); opacity: 1; }
+          60%  { opacity: 1; }
+          100% { transform: scale(1) translate(var(--tx,${Math.random() * 80 - 40}px), var(--ty,${Math.random() * 80 + 20}px)); opacity: 0; }
+        }
+        @keyframes pulseAmber {
+          0%,100% { box-shadow: 0 0 0 0 #C8873A44; }
+          50%      { box-shadow: 0 0 0 24px #C8873A00; }
+        }
+      `),
+        sparks.current.map(s => React.createElement(Spark, Object.assign({ key: s.id }, s)))));
+}
+// ─── LIBRARY SCREEN ───────────────────────────────────────────────────────────
+function LibraryScreen({ exercises, categories, tasks, onAdd, stats }) {
+    const [catId, setCatId] = useState("all");
+    const catColor = (id) => { var _a; return ((_a = categories.find(c => c.id === id)) === null || _a === void 0 ? void 0 : _a.color) || C.amber; };
+    const filtered = catId === "all" ? exercises : exercises.filter(e => e.categoryId === catId);
+    const inSession = new Set(tasks.map(t => t.exerciseId));
+    // Build a stable ordered pool of up to 6 candidates (memo ignores tasks/inSession).
+    // At render time we filter out already-queued items and show the first 3 remaining —
+    // so adding an item removes it from the box and the next candidate slides in,
+    // without any reshuffling.
+    const exerciseKey = exercises.map(e => e.id).join(",");
+    const statsKey = exercises.map(e => { var _a; return ((_a = stats[e.id]) === null || _a === void 0 ? void 0 : _a.totalSec) || 0; }).join(",");
+    const candidatePool = useMemo(() => {
+        const unpractised = exercises.filter(ex => !stats[ex.id] || stats[ex.id].totalSec === 0);
+        const practised = exercises
+            .filter(ex => stats[ex.id] && stats[ex.id].totalSec > 0)
+            .sort((a, b) => stats[a.id].totalSec - stats[b.id].totalSec);
+        let pool;
+        if (unpractised.length >= 6) {
+            pool = [...unpractised].sort(() => Math.random() - 0.5).slice(0, 6);
+        }
+        else {
+            pool = [...unpractised, ...practised].slice(0, 6);
+        }
+        // Sort pool: unpractised (0s) first, then ascending practice time
+        return pool.sort((a, b) => { var _a, _b; return (((_a = stats[a.id]) === null || _a === void 0 ? void 0 : _a.totalSec) || 0) - (((_b = stats[b.id]) === null || _b === void 0 ? void 0 : _b.totalSec) || 0); });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [exerciseKey, statsKey]);
+    // Visible suggestions = first 3 from the pool that aren't already in the session queue
+    const suggestions = candidatePool.filter(ex => !inSession.has(ex.id)).slice(0, 3);
+    function fmtSuggestTime(ex) {
+        var _a;
+        const s = ((_a = stats[ex.id]) === null || _a === void 0 ? void 0 : _a.totalSec) || 0;
+        if (s === 0)
+            return "never practised";
+        const m = Math.floor(s / 60);
+        return m < 60 ? `${m}m practised` : `${Math.floor(m / 60)}h ${m % 60}m practised`;
+    }
+    return (React.createElement(React.Fragment, null,
+        React.createElement("div", { style: { display: "flex", gap: 8, padding: "10px 16px", overflowX: "auto", scrollbarWidth: "none", borderBottom: `1px solid ${C.faint}` } },
+            React.createElement("button", { style: base.catChip(catId === "all", C.amber), onClick: () => setCatId("all") }, "All"),
+            categories.map(c => (React.createElement("button", { key: c.id, style: base.catChip(catId === c.id, c.color), onClick: () => setCatId(c.id) }, c.name)))),
+        React.createElement("div", { style: base.scrollArea(24) },
+            suggestions.length > 0 && (React.createElement("div", { style: { background: "linear-gradient(135deg,#1A1208 0%,#0F1A0F 100%)", border: "1px solid #2A2008", borderRadius: 12, padding: "12px 14px", marginBottom: 4 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 10 } },
+                    React.createElement("span", { style: { fontSize: 13 } }, "\uD83C\uDFAF"),
+                    React.createElement("span", { style: { fontSize: 10, fontWeight: 800, letterSpacing: "0.15em", textTransform: "uppercase", color: C.amber } }, "Needs Practice"),
+                    React.createElement("span", { style: { fontSize: 10, color: C.muted } }, "\u00B7 least worked on")),
+                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 7 } }, suggestions.map((ex, rank) => {
+                    const cat = categories.find(c => c.id === ex.categoryId);
+                    const col = (cat === null || cat === void 0 ? void 0 : cat.color) || "#888";
+                    const added = inSession.has(ex.id);
+                    return (React.createElement("div", { key: ex.id, onClick: () => !added && onAdd(ex), style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                            background: added ? "#111" : "#0F0F0F", borderRadius: 8,
+                            border: `1px solid ${rank === 0 ? C.amber + "44" : "#222"}`,
+                            cursor: added ? "default" : "pointer", opacity: added ? 0.5 : 1 } },
+                        React.createElement("div", { style: { width: 18, height: 18, borderRadius: "50%", background: rank === 0 ? "#C8873A44" : "#1A1A1A",
+                                border: `1px solid ${rank === 0 ? C.amber : "#333"}`,
+                                color: rank === 0 ? C.amber : C.muted,
+                                fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, rank + 1),
+                        React.createElement("span", { style: { fontSize: 16, flexShrink: 0 } }, ex.icon),
+                        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                            React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: C.cream, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ex.name),
+                            React.createElement("div", { style: { fontSize: 10, color: col, marginTop: 1, fontWeight: 600 } }, cat === null || cat === void 0 ? void 0 :
+                                cat.name,
+                                " \u00B7 ",
+                                React.createElement("span", { style: { color: "#4A5A4A", fontWeight: 400 } }, fmtSuggestTime(ex)))),
+                        React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: added ? "transparent" : "#C8873A22",
+                                border: `1px solid ${added ? "#2A2A2A" : C.amber}`, color: added ? C.muted : C.amber,
+                                fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, added ? "✓" : "+")));
+                })))),
+            (() => {
+                if (filtered.length === 0)
+                    return (React.createElement("div", { style: { textAlign: "center", padding: "40px 20px", color: C.muted, fontSize: 13 } }, "No exercises in this category yet."));
+                // When "All" is selected, group by category with section headers
+                if (catId === "all") {
+                    const groups = [];
+                    let lastCatId = null;
+                    filtered.forEach(ex => {
+                        if (ex.categoryId !== lastCatId) {
+                            groups.push({ type: "header", cat: categories.find(c => c.id === ex.categoryId) });
+                            lastCatId = ex.categoryId;
+                        }
+                        groups.push({ type: "ex", ex });
+                    });
+                    return groups.map((item, idx) => {
+                        if (item.type === "header") {
+                            const cat = item.cat;
+                            return (React.createElement("div", { key: "h-" + ((cat === null || cat === void 0 ? void 0 : cat.id) || idx), style: { display: "flex", alignItems: "center", gap: 8, paddingTop: idx === 0 ? 4 : 12, paddingBottom: 4 } },
+                                React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", background: (cat === null || cat === void 0 ? void 0 : cat.color) || "#888", flexShrink: 0 } }),
+                                React.createElement("span", { style: { fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: (cat === null || cat === void 0 ? void 0 : cat.color) || "#888" } }, (cat === null || cat === void 0 ? void 0 : cat.name) || "Unknown"),
+                                React.createElement("div", { style: { flex: 1, height: 1, background: ((cat === null || cat === void 0 ? void 0 : cat.color) || "#888") + "33" } })));
+                        }
+                        const ex = item.ex;
+                        const cat = categories.find(c => c.id === ex.categoryId);
+                        const col = (cat === null || cat === void 0 ? void 0 : cat.color) || "#888";
+                        const added = inSession.has(ex.id);
+                        return (React.createElement("div", { key: ex.id, style: Object.assign(Object.assign({}, base.exCard(col)), { opacity: added ? 0.5 : 1 }), onClick: () => !added && onAdd(ex) },
+                            React.createElement("span", { style: { fontSize: 20, width: 28, textAlign: "center", flexShrink: 0 } }, ex.icon),
+                            React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                                React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: C.cream } }, ex.name),
+                                ex.description && React.createElement("div", { style: { fontSize: 11, color: C.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ex.description)),
+                            React.createElement("span", { style: { fontSize: 11, color: C.muted, flexShrink: 0, marginRight: 4 } },
+                                ex.defaultMin,
+                                "m"),
+                            ex.youtubeUrl && extractYouTubeId(ex.youtubeUrl) && (React.createElement("span", { style: { fontSize: 10, background: "#FF000033", border: "1px solid #FF000066", color: "#FF6666", borderRadius: 4, padding: "2px 5px", flexShrink: 0, marginRight: 4, fontWeight: 700 } }, "\u25B6")),
+                            React.createElement("div", { style: { width: 26, height: 26, borderRadius: "50%", background: "#C8873A22", border: `1px solid ${C.amber}`, color: C.amber, fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: added ? 0 : 1, pointerEvents: added ? "none" : "auto" } }, "+")));
+                    });
+                }
+                // Single category — flat list (category already obvious from filter)
+                return filtered.map(ex => {
+                    const cat = categories.find(c => c.id === ex.categoryId);
+                    const col = (cat === null || cat === void 0 ? void 0 : cat.color) || "#888";
+                    const added = inSession.has(ex.id);
+                    return (React.createElement("div", { key: ex.id, style: Object.assign(Object.assign({}, base.exCard(col)), { opacity: added ? 0.5 : 1 }), onClick: () => !added && onAdd(ex) },
+                        React.createElement("span", { style: { fontSize: 20, width: 28, textAlign: "center", flexShrink: 0 } }, ex.icon),
+                        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+                            React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: C.cream } }, ex.name),
+                            ex.description && React.createElement("div", { style: { fontSize: 11, color: C.muted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, ex.description)),
+                        React.createElement("span", { style: { fontSize: 11, color: C.muted, flexShrink: 0, marginRight: 4 } },
+                            ex.defaultMin,
+                            "m"),
+                        ex.youtubeUrl && extractYouTubeId(ex.youtubeUrl) && (React.createElement("span", { style: { fontSize: 10, background: "#FF000033", border: "1px solid #FF000066", color: "#FF6666", borderRadius: 4, padding: "2px 5px", flexShrink: 0, marginRight: 4, fontWeight: 700 } }, "\u25B6")),
+                        React.createElement("div", { style: { width: 26, height: 26, borderRadius: "50%", background: "#C8873A22", border: `1px solid ${C.amber}`, color: C.amber, fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: added ? 0 : 1, pointerEvents: added ? "none" : "auto" } }, "+")));
+                });
+            })())));
+}
+// ─── PRESETS SCREEN ───────────────────────────────────────────────────────────
+function PresetsScreen({ presets, setPresets, tasks, setTasks, onLoadGoToSession }) {
+    const [saveName, setSaveName] = useState("");
+    const [saveOpen, setSaveOpen] = useState(false);
+    const [deleteId, setDeleteId] = useState(null);
+    const savePreset = () => {
+        if (!saveName.trim() || tasks.length === 0)
+            return;
+        const preset = { id: uid(), name: saveName.trim(), tasks: tasks.map(t => (Object.assign({}, t))), createdAt: Date.now() };
+        setPresets(prev => [preset, ...prev]);
+        setSaveName("");
+        setSaveOpen(false);
+    };
+    const loadPreset = (preset) => {
+        setTasks(preset.tasks.map(t => (Object.assign(Object.assign({}, t), { id: uid() }))));
+        onLoadGoToSession();
+    };
+    const deletePreset = (id) => { setPresets(prev => prev.filter(p => p.id !== id)); setDeleteId(null); };
+    return (React.createElement("div", { style: base.scrollArea(24) },
+        !saveOpen ? (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { width: "100%", textAlign: "center", padding: "12px", color: tasks.length > 0 ? C.amber : C.muted, border: `1px solid ${tasks.length > 0 ? C.amber + "55" : "#222"}`, cursor: tasks.length > 0 ? "pointer" : "default" }), onClick: () => tasks.length > 0 && setSaveOpen(true), title: tasks.length === 0 ? "Add exercises to your session first" : "" },
+            "\uD83D\uDCBE Save Current Session as Preset",
+            tasks.length === 0 ? " (queue is empty)" : "")) : (React.createElement("div", { style: { background: "#151208", border: "1px solid #2A1E08", borderRadius: 10, padding: "14px" } },
+            React.createElement("label", { style: base.label }, "Preset name"),
+            React.createElement("input", { style: Object.assign(Object.assign({}, base.input), { marginBottom: 10 }), autoFocus: true, value: saveName, onChange: e => setSaveName(e.target.value), placeholder: "e.g. Morning Warm-Up", onKeyDown: e => { if (e.key === "Enter")
+                    savePreset(); if (e.key === "Escape")
+                    setSaveOpen(false); } }),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { flex: 1, textAlign: "center" }), onClick: () => setSaveOpen(false) }, "Cancel"),
+                React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(true)), { flex: 2 }), onClick: savePreset }, "\uD83D\uDCBE Save")))),
+        presets.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "44px 20px", color: "#3A3A3A" } },
+            React.createElement("div", { style: { fontSize: 40, marginBottom: 10 } }, "\uD83D\uDCCB"),
+            React.createElement("div", { style: { fontSize: 13, lineHeight: 1.7 } },
+                "No presets yet.",
+                React.createElement("br", null),
+                "Build a session in the ",
+                React.createElement("span", { style: { color: C.amber } }, "Session"),
+                " tab,",
+                React.createElement("br", null),
+                "then come back here to save it."))),
+        presets.map(p => {
+            const totalMin = p.tasks.reduce((s, t) => s + (t.minutes || 0), 0);
+            const isDeleting = deleteId === p.id;
+            return (React.createElement("div", { key: p.id, style: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" } },
+                React.createElement("div", { style: { padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 } },
+                    React.createElement("div", { style: { flex: 1 } },
+                        React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: C.cream } }, p.name),
+                        React.createElement("div", { style: { fontSize: 11, color: C.muted, marginTop: 2 } },
+                            p.tasks.length,
+                            " exercises \u00B7 ",
+                            totalMin,
+                            "m")),
+                    !isDeleting ? (React.createElement("div", { style: { display: "flex", gap: 6 } },
+                        React.createElement("button", { onClick: () => loadPreset(p), style: { padding: "6px 12px", background: "#C8873A22", border: `1px solid ${C.amber}55`, borderRadius: 7, color: C.amber, fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Load \u25B6"),
+                        React.createElement("button", { onClick: () => setDeleteId(p.id), style: { width: 28, height: 28, borderRadius: 7, background: "none", border: "1px solid #2A2A2A", color: C.muted, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } }, "\u00D7"))) : (React.createElement("div", { style: { display: "flex", gap: 6 } },
+                        React.createElement("button", { onClick: () => setDeleteId(null), style: { padding: "5px 10px", background: "#222", border: "1px solid #333", borderRadius: 7, color: "#888", fontSize: 11, cursor: "pointer" } }, "Keep"),
+                        React.createElement("button", { onClick: () => deletePreset(p.id), style: { padding: "5px 10px", background: "#3A0A0A", border: "1px solid #6A1A1A", borderRadius: 7, color: "#F87171", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Delete")))),
+                React.createElement("div", { style: { padding: "6px 14px 10px", display: "flex", flexWrap: "wrap", gap: 5 } }, p.tasks.map((t, i) => (React.createElement("span", { key: i, style: { fontSize: 10, background: "#1A1A1A", border: "1px solid #2A2A2A", borderRadius: 5, padding: "3px 7px", color: "#888" } },
+                    t.icon,
+                    " ",
+                    t.name,
+                    " \u00B7 ",
+                    t.minutes,
+                    "m"))))));
+        })));
+}
+// ─── SESSION SCREEN ───────────────────────────────────────────────────────────
+function SessionScreen({ tasks, setTasks, onStart, sessionInProgress, onReturnToSession, presets, setPresets }) {
+    const [saveName, setSaveName] = useState("");
+    const [saveOpen, setSaveOpen] = useState(false);
+    const totalSec = tasks.reduce((s, t) => s + t.minutes * 60, 0);
+    const upd = (id, d) => setTasks(prev => prev.map(t => t.id === id ? Object.assign(Object.assign({}, t), { minutes: Math.max(1, t.minutes + d) }) : t));
+    const rm = (id) => setTasks(prev => prev.filter(t => t.id !== id));
+    const savePreset = () => {
+        if (!saveName.trim() || tasks.length === 0)
+            return;
+        const preset = { id: uid(), name: saveName.trim(), tasks: tasks.map(t => (Object.assign({}, t))), createdAt: Date.now() };
+        setPresets(prev => [preset, ...prev]);
+        setSaveName("");
+        setSaveOpen(false);
+    };
+    return (React.createElement(React.Fragment, null,
+        tasks.length === 0 ? (React.createElement("div", { style: { textAlign: "center", padding: "52px 20px", color: "#3A3A3A" } },
+            React.createElement("div", { style: { fontSize: 44, marginBottom: 10 } }, "\uD83C\uDFB8"),
+            React.createElement("div", { style: { fontSize: 13, lineHeight: 1.8 } },
+                "Your session queue is empty.",
+                React.createElement("br", null),
+                React.createElement("span", { style: { color: C.amber } }, "Library"),
+                " \u2192 tap ",
+                React.createElement("span", { style: { color: C.amber } }, "+"),
+                " to add exercises,",
+                React.createElement("br", null),
+                "or ",
+                React.createElement("span", { style: { color: C.amber } }, "Presets"),
+                " to load a saved session."))) : (React.createElement("div", { style: base.scrollArea(180) }, tasks.map((task, i) => (React.createElement("div", { key: task.id, style: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "11px 13px", display: "flex", alignItems: "center", gap: 9 } },
+            React.createElement("div", { style: { width: 20, height: 20, borderRadius: "50%", background: "#2A2A2A", color: "#6B5A3A", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, i + 1),
+            React.createElement("span", { style: { fontSize: 15, flexShrink: 0 } }, task.icon),
+            React.createElement("div", { style: { flex: 1, fontSize: 13, fontWeight: 600 } }, task.name),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 5 } },
+                React.createElement("button", { style: { width: 22, height: 22, borderRadius: "50%", background: "#222", border: `1px solid #333`, color: C.cream, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }, onClick: () => upd(task.id, -1) }, "\u2212"),
+                React.createElement("span", { style: { fontSize: 13, fontFamily: "monospace", color: C.amber, width: 34, textAlign: "center", fontWeight: 700 } },
+                    task.minutes,
+                    "m"),
+                React.createElement("button", { style: { width: 22, height: 22, borderRadius: "50%", background: "#222", border: `1px solid #333`, color: C.cream, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }, onClick: () => upd(task.id, 1) }, "+")),
+            React.createElement("button", { style: { width: 22, height: 22, borderRadius: "50%", background: "none", border: `1px solid #2A2A2A`, color: C.muted, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }, onClick: () => rm(task.id) }, "\u00D7")))))),
+        saveOpen && (React.createElement("div", { style: { margin: "0 16px 8px", padding: "12px 14px", background: "#151208", border: "1px solid #2A1E08", borderRadius: 10, display: "flex", flexDirection: "column", gap: 8 } },
+            React.createElement("label", { style: base.label }, "Save as preset"),
+            React.createElement("input", { style: base.input, autoFocus: true, value: saveName, onChange: e => setSaveName(e.target.value), placeholder: "e.g. Morning Warm-Up", onKeyDown: e => { if (e.key === "Enter")
+                    savePreset(); if (e.key === "Escape")
+                    setSaveOpen(false); } }),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { flex: 1, textAlign: "center" }), onClick: () => setSaveOpen(false) }, "Cancel"),
+                React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(true)), { flex: 2 }), onClick: savePreset }, "\uD83D\uDCBE Save Preset")))),
+        React.createElement("div", { style: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, background: "linear-gradient(0deg,#0A0A0A 85%,transparent)", padding: "10px 16px 22px" } },
+            tasks.length > 0 && (React.createElement("div", { style: { textAlign: "center", marginBottom: 8 } },
+                React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: C.muted } }, "Total Session Time"),
+                React.createElement("div", { style: { fontSize: 24, fontFamily: "monospace", fontWeight: 700, color: C.amber } }, formatTotalMin(totalSec)),
+                React.createElement("div", { style: { fontSize: 11, color: C.muted } },
+                    tasks.length,
+                    " exercise",
+                    tasks.length !== 1 ? "s" : ""))),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                tasks.length > 0 && !saveOpen && (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { padding: "12px 14px", flexShrink: 0, color: C.amber, border: `1px solid ${C.amber}44` }), onClick: () => setSaveOpen(true), title: "Save session as preset" }, "\uD83D\uDCBE")),
+                sessionInProgress ? (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(true)), { flex: 1, background: "linear-gradient(135deg,#34D399,#059669)" }), onClick: onReturnToSession }, "\u25B6 Return to Session")) : (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(true)), { flex: 1 }), onClick: onStart, disabled: tasks.length === 0 }, "\u25B6 Start Session"))))));
+}
+// ─── ACTIVE SESSION ───────────────────────────────────────────────────────────
+function ActiveSessionScreen({ tasks, onFinish, onBackToMenu, audioCtx, masterGainRef, onCommitStats, isVisible, 
+// lifted state
+current, setCurrent, secondsLeft, setSecondsLeft, running, setRunning, hasStarted, setHasStarted, done, setDone, elapsedRef, committedRef, }) {
+    const [flash, setFlash] = useState(false);
+    const [fireworks, setFireworks] = useState(false);
+    const intervalRef = useRef(null);
+    const advanceRef = useRef(null);
+    // Auto-pause when user navigates away; resume is manual
+    useEffect(() => {
+        if (!isVisible && running) {
+            setRunning(false);
+        }
+    }, [isVisible]);
+    // Flush elapsed time for the current task into stats
+    const flushStats = useCallback((taskIndex, overrideSec) => {
+        const task = tasks[taskIndex];
+        if (!task)
+            return;
+        const key = task.exerciseId || task.id;
+        if (committedRef.current.has(key + "-" + taskIndex))
+            return;
+        const sec = overrideSec !== undefined ? overrideSec : elapsedRef.current;
+        if (sec <= 0)
+            return;
+        committedRef.current.add(key + "-" + taskIndex);
+        onCommitStats(task, sec);
+    }, [tasks, onCommitStats]);
+    const totalSec = tasks.reduce((s, t) => s + t.minutes * 60, 0);
+    const completedSec = tasks.slice(0, current).reduce((s, t) => s + t.minutes * 60, 0);
+    const overallPct = Math.round((completedSec / totalSec) * 100);
+    const currentTask = tasks[current];
+    const taskTotalSec = currentTask ? currentTask.minutes * 60 : 0;
+    const taskPct = taskTotalSec > 0 ? Math.round(((taskTotalSec - secondsLeft) / taskTotalSec) * 100) : 100;
+    advanceRef.current = () => {
+        if (current + 1 >= tasks.length) {
+            flushStats(current);
+            elapsedRef.current = 0;
+            setDone(true);
+            setRunning(false);
+            playSessionDone(audioCtx.current, masterGainRef === null || masterGainRef === void 0 ? void 0 : masterGainRef.current);
+            setFireworks(true);
+        }
+        else {
+            flushStats(current);
+            elapsedRef.current = 0;
+            playExerciseDone(audioCtx.current, masterGainRef === null || masterGainRef === void 0 ? void 0 : masterGainRef.current);
+            setFlash(true);
+            setTimeout(() => setFlash(false), 700);
+            const next = current + 1;
+            setCurrent(next);
+            setSecondsLeft(tasks[next].minutes * 60);
+        }
+    };
+    useEffect(() => {
+        if (running) {
+            intervalRef.current = setInterval(() => {
+                setSecondsLeft(s => {
+                    elapsedRef.current += 1;
+                    if (s <= 1) {
+                        clearInterval(intervalRef.current);
+                        advanceRef.current();
+                        return 0;
+                    }
+                    return s - 1;
+                });
+            }, 1000);
+        }
+        else {
+            clearInterval(intervalRef.current);
+        }
+        return () => clearInterval(intervalRef.current);
+    }, [running, current]);
+    const skip = () => { clearInterval(intervalRef.current); advanceRef.current(); };
+    // Urgency pulse when ≤10s left
+    const urgent = secondsLeft <= 10 && secondsLeft > 0 && running;
+    if (done)
+        return (React.createElement(React.Fragment, null,
+            React.createElement(Fireworks, { active: fireworks }),
+            React.createElement("style", null, `@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}@keyframes glowPulse{0%,100%{text-shadow:0 0 8px #C8873A66}50%{text-shadow:0 0 32px #C8873Acc,0 0 60px #C8873A44}}`),
+            React.createElement("div", { style: { textAlign: "center", padding: "50px 24px", animation: "fadeUp 0.6s ease-out" } },
+                React.createElement("div", { style: { fontSize: 60, marginBottom: 16, animation: "glowPulse 2s ease-in-out infinite" } }, "\uD83C\uDFC6"),
+                React.createElement("div", { style: { fontSize: 22, fontWeight: 800, color: C.amber, marginBottom: 8, animation: "glowPulse 2s ease-in-out infinite" } }, "Session Complete!"),
+                React.createElement("div", { style: { fontSize: 13, color: C.muted, lineHeight: 1.7, marginBottom: 6 } },
+                    tasks.length,
+                    " exercise",
+                    tasks.length !== 1 ? "s" : "",
+                    " \u00B7 ",
+                    formatTotalMin(totalSec)),
+                React.createElement("div", { style: { fontSize: 11, color: "#3A4A3A", marginBottom: 28 } }, "Keep it up \u2014 consistency builds mastery. \uD83C\uDFB8"),
+                React.createElement("button", { style: base.pillBtn(true), onClick: onFinish }, "Back to Session"),
+                React.createElement("br", null),
+                React.createElement("br", null),
+                React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { width: "100%" }), onClick: onBackToMenu }, "\u21A9 Main Menu"))));
+    return (React.createElement(React.Fragment, null,
+        React.createElement("style", null, `
+        @keyframes urgentPulse{0%,100%{color:#C8873A}50%{color:#F87171;text-shadow:0 0 16px #F8717188}}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      `),
+        React.createElement(FlashOverlay, { show: flash, color: "#4FC3F7" }),
+        React.createElement("div", { style: { padding: "14px 16px 100px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", maxHeight: "calc(100vh - 110px)" } },
+            React.createElement("div", { style: { background: "#151208", border: "1px solid #2A1E08", borderRadius: 16, padding: "22px 18px", textAlign: "center" } },
+                React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6B5A3A", marginBottom: 3 } },
+                    "Exercise ",
+                    current + 1,
+                    " of ",
+                    tasks.length),
+                React.createElement("div", { style: { fontSize: 19, fontWeight: 700, color: C.cream, marginBottom: 18 } }, currentTask === null || currentTask === void 0 ? void 0 :
+                    currentTask.icon,
+                    " ", currentTask === null || currentTask === void 0 ? void 0 :
+                    currentTask.name),
+                React.createElement("div", { style: { fontSize: 58, fontFamily: "monospace", fontWeight: 700, lineHeight: 1, marginBottom: 6, animation: urgent ? "urgentPulse 0.7s ease-in-out infinite" : "none", color: C.amber } }, formatTime(secondsLeft)),
+                React.createElement("div", { style: { fontSize: 10, color: C.muted, letterSpacing: "0.1em", textTransform: "uppercase" } }, "remaining"),
+                React.createElement("div", { style: { height: 4, background: "#1E1E1E", borderRadius: 2, margin: "14px 0 0", overflow: "hidden" } },
+                    React.createElement("div", { style: { height: "100%", width: `${taskPct}%`, background: urgent ? "linear-gradient(90deg,#6B0A0A,#F87171)" : "linear-gradient(90deg,#6B3A0A,#C8873A)", borderRadius: 2, transition: "width 1s linear, background 0.3s" } })),
+                React.createElement("div", { style: { display: "flex", justifyContent: "center", gap: 12, marginTop: 18 } },
+                    React.createElement("button", { style: base.pillBtn(false), onClick: skip }, "Skip \u2192"),
+                    React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(true)), { width: "auto", padding: "12px 28px" }), onClick: () => { setRunning(r => !r); setHasStarted(true); } }, running ? "⏸ Pause" : hasStarted ? "▶ Resume" : "▶ Play"))),
+            React.createElement(YouTubeCard, { videoId: extractYouTubeId(currentTask === null || currentTask === void 0 ? void 0 : currentTask.youtubeUrl) }),
+            React.createElement("div", { style: base.card },
+                React.createElement("div", { style: { padding: "10px 14px", borderBottom: `1px solid ${C.faint}`, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                    React.createElement("span", { style: { fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: C.muted } }, "Session Setlist"),
+                    React.createElement("span", { style: { fontSize: 11, color: C.amber, fontWeight: 700 } },
+                        current,
+                        "/",
+                        tasks.length,
+                        " done")),
+                tasks.map((t, i) => {
+                    const st = i < current ? "done" : i === current ? "cur" : "up";
+                    return (React.createElement("div", { key: t.id, style: { padding: "9px 14px", display: "flex", alignItems: "center", gap: 9, borderBottom: `1px solid #111`, background: st === "cur" ? "#1A1208" : "transparent", opacity: st === "up" ? 0.4 : 1 } },
+                        React.createElement("div", { style: { width: 8, height: 8, borderRadius: "50%", background: st === "done" ? "#34D399" : st === "cur" ? C.amber : "#2A2A2A", flexShrink: 0 } }),
+                        React.createElement("span", { style: { flex: 1, fontSize: 12, color: st === "done" ? "#3A5A40" : st === "cur" ? C.cream : C.muted, textDecoration: st === "done" ? "line-through" : "none" } }, t.name),
+                        t.youtubeUrl && extractYouTubeId(t.youtubeUrl) && (React.createElement("span", { style: { fontSize: 9, background: "#FF000044", color: "#FF6666", borderRadius: 3, padding: "1px 4px", fontWeight: 700, flexShrink: 0 } }, "\u25B6")),
+                        React.createElement("span", { style: { fontSize: 11, fontFamily: "monospace", color: C.muted } },
+                            t.minutes,
+                            "m")));
+                }),
+                React.createElement("div", { style: { padding: "10px 14px", background: "#0A0A0A" } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
+                        React.createElement("span", { style: { fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: C.muted } }, "Overall Progress"),
+                        React.createElement("span", { style: { fontSize: 11, color: "#6B5A3A", fontFamily: "monospace" } },
+                            overallPct,
+                            "%")),
+                    React.createElement("div", { style: { height: 3, background: C.faint, borderRadius: 2, overflow: "hidden" } },
+                        React.createElement("div", { style: { height: "100%", width: `${overallPct}%`, background: C.amber + "55", borderRadius: 2, transition: "width 0.5s" } })))),
+            React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { width: "100%", textAlign: "center", color: C.muted, fontSize: 12 }), onClick: () => { flushStats(current); onBackToMenu(); } }, "\u21A9 Back to Main Menu"))));
+}
+// ─── SETTINGS SCREEN ─────────────────────────────────────────────────────────
+const COLOR_PALETTE = ["#C8873A", "#4FC3F7", "#A78BFA", "#F87171", "#34D399", "#FBBF24", "#FB923C", "#F472B6", "#60A5FA", "#A3E635", "#E879F9", "#2DD4BF"];
+// ── EXERCISE EDITOR (standalone component so hooks are never conditional) ──
+function ExerciseEditor({ editEx, categories, setExercises, onBack }) {
+    var _a;
+    const isNew = editEx === "new";
+    const [form, setForm] = useState(isNew
+        ? { name: "", description: "", defaultMin: 10, icon: "🎸", categoryId: ((_a = categories[0]) === null || _a === void 0 ? void 0 : _a.id) || "", youtubeUrl: "" }
+        : Object.assign(Object.assign({}, editEx), { youtubeUrl: editEx.youtubeUrl || "" }));
+    const [iconPicker, setIconPicker] = useState(false);
+    const setF = (k, v) => setForm(f => (Object.assign(Object.assign({}, f), { [k]: v })));
+    const save = () => {
+        if (!form.name.trim())
+            return;
+        if (isNew) {
+            setExercises(prev => [...prev, Object.assign(Object.assign({}, form), { id: uid(), defaultMin: Number(form.defaultMin) })]);
+        }
+        else {
+            setExercises(prev => prev.map(e => e.id === form.id ? Object.assign(Object.assign({}, form), { defaultMin: Number(form.defaultMin) }) : e));
+        }
+        onBack();
+    };
+    const del = () => { setExercises(prev => prev.filter(e => e.id !== form.id)); onBack(); };
+    return (React.createElement("div", { style: base.scrollArea(24) },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 } },
+            React.createElement("button", { style: base.iconBtn(C.amber), onClick: onBack }, "\u2190"),
+            React.createElement("span", { style: { fontSize: 14, fontWeight: 700, color: C.cream } }, isNew ? "New Exercise" : "Edit Exercise")),
+        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Icon"),
+                React.createElement("button", { style: { fontSize: 28, background: "#1A1A1A", border: `1px solid #2A2A2A`, borderRadius: 10, padding: "8px 16px", cursor: "pointer" }, onClick: () => setIconPicker(p => !p) }, form.icon),
+                iconPicker && (React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, padding: 10, background: "#1A1A1A", borderRadius: 10, border: `1px solid #2A2A2A` } }, ICONS.map(ic => (React.createElement("button", { key: ic, style: { fontSize: 20, background: form.icon === ic ? "#C8873A33" : "none", border: form.icon === ic ? `1px solid ${C.amber}` : "1px solid transparent", borderRadius: 6, padding: 4, cursor: "pointer" }, onClick: () => { setF("icon", ic); setIconPicker(false); } }, ic)))))),
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Name"),
+                React.createElement("input", { style: base.input, value: form.name, onChange: e => setF("name", e.target.value), placeholder: "Exercise name" })),
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Description"),
+                React.createElement("textarea", { style: Object.assign(Object.assign({}, base.input), { height: 72, resize: "none" }), value: form.description || "", onChange: e => setF("description", e.target.value), placeholder: "What does this exercise focus on?" })),
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "YouTube Reference Video (optional)"),
+                React.createElement("input", { style: base.input, value: form.youtubeUrl || "", onChange: e => setF("youtubeUrl", e.target.value), placeholder: "https://youtube.com/watch?v=..." }),
+                form.youtubeUrl && !extractYouTubeId(form.youtubeUrl) && (React.createElement("div", { style: { fontSize: 11, color: "#F87171", marginTop: 5 } }, "\u26A0 URL not recognised \u2014 try a standard youtube.com or youtu.be link")),
+                form.youtubeUrl && extractYouTubeId(form.youtubeUrl) && (React.createElement("div", { style: { fontSize: 11, color: "#34D399", marginTop: 5 } },
+                    "\u2713 Video ID: ",
+                    extractYouTubeId(form.youtubeUrl)))),
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Default Duration (minutes)"),
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                    React.createElement("button", { style: { width: 32, height: 32, borderRadius: "50%", background: "#222", border: `1px solid #333`, color: C.cream, fontSize: 18, cursor: "pointer" }, onClick: () => setF("defaultMin", Math.max(1, form.defaultMin - 1)) }, "\u2212"),
+                    React.createElement("span", { style: { fontSize: 18, fontFamily: "monospace", color: C.amber, fontWeight: 700, width: 40, textAlign: "center" } }, form.defaultMin),
+                    React.createElement("button", { style: { width: 32, height: 32, borderRadius: "50%", background: "#222", border: `1px solid #333`, color: C.cream, fontSize: 18, cursor: "pointer" }, onClick: () => setF("defaultMin", form.defaultMin + 1) }, "+"))),
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Category"),
+                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 7 } }, categories.map(c => (React.createElement("button", { key: c.id, style: base.catChip(form.categoryId === c.id, c.color), onClick: () => setF("categoryId", c.id) }, c.name))))),
+            React.createElement("button", { style: base.pillBtn(true), onClick: save }, isNew ? "Add Exercise" : "Save Changes"),
+            !isNew && (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { color: "#F87171", border: "1px solid #3A1A1A", textAlign: "center" }), onClick: del }, "Delete Exercise")))));
+}
+// ── CATEGORY EDITOR (standalone component so hooks are never conditional) ──
+function CategoryEditor({ editCat, setExercises, setCategories, onBack }) {
+    const isNew = editCat === "new";
+    const [form, setForm] = useState(isNew ? { name: "", color: COLOR_PALETTE[0] } : Object.assign({}, editCat));
+    const setF = (k, v) => setForm(f => (Object.assign(Object.assign({}, f), { [k]: v })));
+    const save = () => {
+        if (!form.name.trim())
+            return;
+        if (isNew) {
+            setCategories(prev => [...prev, Object.assign(Object.assign({}, form), { id: uid() })]);
+        }
+        else {
+            setCategories(prev => prev.map(c => c.id === form.id ? form : c));
+        }
+        onBack();
+    };
+    const del = () => {
+        setCategories(prev => prev.filter(c => c.id !== form.id));
+        setExercises(prev => prev.filter(e => e.categoryId !== form.id));
+        onBack();
+    };
+    return (React.createElement("div", { style: base.scrollArea(24) },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 } },
+            React.createElement("button", { style: base.iconBtn(C.amber), onClick: onBack }, "\u2190"),
+            React.createElement("span", { style: { fontSize: 14, fontWeight: 700, color: C.cream } }, isNew ? "New Category" : "Edit Category")),
+        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Name"),
+                React.createElement("input", { style: base.input, value: form.name, onChange: e => setF("name", e.target.value), placeholder: "Category name" })),
+            React.createElement("div", null,
+                React.createElement("label", { style: base.label }, "Color"),
+                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } }, COLOR_PALETTE.map(col => (React.createElement("button", { key: col, onClick: () => setF("color", col), style: { width: 32, height: 32, borderRadius: "50%", background: col, border: form.color === col ? `3px solid white` : "3px solid transparent", cursor: "pointer", transition: "border 0.1s" } }))))),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#1A1A1A", borderRadius: 10 } },
+                React.createElement("div", { style: { width: 10, height: 10, borderRadius: "50%", background: form.color } }),
+                React.createElement("span", { style: { fontSize: 13, color: form.color, fontWeight: 600 } }, form.name || "Preview")),
+            React.createElement("button", { style: base.pillBtn(true), onClick: save }, isNew ? "Add Category" : "Save Changes"),
+            !isNew && (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { color: "#F87171", border: "1px solid #3A1A1A", textAlign: "center" }), onClick: del }, "Delete Category & Its Exercises")))));
+}
+function SettingsScreen({ exercises, setExercises, categories, setCategories, volume, onVolumeChange }) {
+    const [section, setSection] = useState("exercises");
+    const [editEx, setEditEx] = useState(null); // null | "new" | exercise object
+    const [editCat, setEditCat] = useState(null); // null | "new" | category object
+    if (editEx)
+        return React.createElement(ExerciseEditor, { editEx: editEx, categories: categories, setExercises: setExercises, onBack: () => setEditEx(null) });
+    if (editCat)
+        return React.createElement(CategoryEditor, { editCat: editCat, setExercises: setExercises, setCategories: setCategories, onBack: () => setEditCat(null) });
+    // ── SETTINGS MAIN ──
+    return (React.createElement("div", { style: base.scrollArea(24) },
+        React.createElement("div", { style: { display: "flex", gap: 0, background: "#0A0A0A", borderRadius: 10, padding: 3, marginBottom: 8 } }, ["exercises", "categories", "sound"].map(s => (React.createElement("button", { key: s, style: { flex: 1, padding: "8px", borderRadius: 8, border: "none", background: section === s ? "#1E1E1E" : "none", color: section === s ? C.amber : C.muted, fontSize: 12, fontWeight: section === s ? 700 : 500, cursor: "pointer", textTransform: "capitalize", letterSpacing: "0.05em" }, onClick: () => setSection(s) }, s)))),
+        section === "exercises" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { width: "100%", textAlign: "center", color: C.amber, border: `1px solid ${C.amber}44`, marginBottom: 10, padding: "11px" }), onClick: () => setEditEx("new") }, "+ New Exercise"),
+            categories.map(cat => {
+                const catExs = exercises.filter(e => e.categoryId === cat.id);
+                if (catExs.length === 0)
+                    return null;
+                return (React.createElement("div", { key: cat.id, style: { marginBottom: 10 } },
+                    React.createElement("div", { style: { fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: cat.color, padding: "4px 0 6px", fontWeight: 700 } }, cat.name),
+                    React.createElement("div", { style: base.card }, catExs.map((ex, idx) => (React.createElement("div", { key: ex.id, style: Object.assign(Object.assign({}, base.row), { borderBottom: idx < catExs.length - 1 ? `1px solid ${C.faint}` : "none", cursor: "pointer" }), onClick: () => setEditEx(ex) },
+                        React.createElement("span", { style: { fontSize: 16 } }, ex.icon),
+                        React.createElement("div", { style: { flex: 1 } },
+                            React.createElement("div", { style: { fontSize: 13, fontWeight: 600 } }, ex.name)),
+                        React.createElement("span", { style: { fontSize: 11, color: C.muted, fontFamily: "monospace" } },
+                            ex.defaultMin,
+                            "m"),
+                        React.createElement("span", { style: { color: C.muted, fontSize: 14 } }, "\u203A")))))));
+            }))),
+        section === "sound" && (React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+            React.createElement("div", { style: base.card },
+                React.createElement("div", { style: { padding: "14px 16px" } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                        React.createElement("label", { style: Object.assign(Object.assign({}, base.label), { margin: 0 }) }, "Master Volume"),
+                        React.createElement("span", { style: { fontSize: 13, fontFamily: "monospace", color: C.amber, fontWeight: 700 } },
+                            Math.round(volume * 100),
+                            "%")),
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                        React.createElement("span", { style: { fontSize: 14, color: C.muted } }, "\uD83D\uDD08"),
+                        React.createElement("input", { type: "range", min: "0", max: "1", step: "0.05", value: volume, onChange: e => onVolumeChange(parseFloat(e.target.value)), style: { flex: 1, accentColor: C.amber, height: 4, cursor: "pointer" } }),
+                        React.createElement("span", { style: { fontSize: 14, color: C.muted } }, "\uD83D\uDD0A")),
+                    React.createElement("div", { style: { fontSize: 11, color: C.muted, marginTop: 8 } }, "Controls the volume of all in-app sounds (exercise bell, session complete chord)."))))),
+        section === "categories" && (React.createElement(React.Fragment, null,
+            React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { width: "100%", textAlign: "center", color: C.amber, border: `1px solid ${C.amber}44`, marginBottom: 10, padding: "11px" }), onClick: () => setEditCat("new") }, "+ New Category"),
+            React.createElement("div", { style: base.card }, categories.map((cat, idx) => (React.createElement("div", { key: cat.id, style: Object.assign(Object.assign({}, base.row), { borderBottom: idx < categories.length - 1 ? `1px solid ${C.faint}` : "none", cursor: "pointer" }), onClick: () => setEditCat(cat) },
+                React.createElement("div", { style: { width: 12, height: 12, borderRadius: "50%", background: cat.color, flexShrink: 0 } }),
+                React.createElement("div", { style: { flex: 1, fontSize: 13, fontWeight: 600, color: cat.color } }, cat.name),
+                React.createElement("span", { style: { fontSize: 11, color: C.muted } },
+                    exercises.filter(e => e.categoryId === cat.id).length,
+                    " exercises"),
+                React.createElement("span", { style: { color: C.muted, fontSize: 14 } }, "\u203A")))))))));
+}
+// ─── APP ROOT ─────────────────────────────────────────────────────────────────
+function App() {
+    var _a;
+    const [tab, setTab] = useState("library");
+    const [tasks, setTasks] = useState([]);
+    const [sessionActive, setSessionActive] = useState(false);
+    const [exercises, setExercises, exLoaded] = usePersisted("exercises", DEFAULT_EXERCISES);
+    const [categories, setCats, catLoaded] = usePersisted("categories", DEFAULT_CATEGORIES);
+    const [stats, setStats, statsLoaded] = usePersisted("stats", {});
+    const [presets, setPresets, presetsLoaded] = usePersisted("presets", []);
+    const setCategories = setCats;
+    const audioCtx = useRef(null);
+    const masterGainRef = useRef(null);
+    const [volume, setVolume, volLoaded] = usePersisted("volume", 0.8);
+    // ── Lifted session progress state ─────────────────────────────────────────
+    const [sessionCurrent, setSessionCurrent] = useState(0);
+    const [sessionSecondsLeft, setSessionSecondsLeft] = useState(0);
+    const [sessionRunning, setSessionRunning] = useState(false);
+    const [sessionHasStarted, setSessionHasStarted] = useState(false);
+    const [sessionDone, setSessionDone] = useState(false);
+    const sessionElapsedRef = useRef(0);
+    const sessionCommittedRef = useRef(new Set());
+    const commitStats = useCallback((task, elapsedSec) => {
+        if (elapsedSec < 1)
+            return;
+        setStats(prev => {
+            const key = task.exerciseId || task.id;
+            const existing = prev[key] || { exerciseId: key, name: task.name, icon: task.icon, totalSec: 0, sessions: 0 };
+            return Object.assign(Object.assign({}, prev), { [key]: Object.assign(Object.assign({}, existing), { name: task.name, icon: task.icon, totalSec: existing.totalSec + Math.round(elapsedSec), sessions: existing.sessions + 1 }) });
+        });
+    }, [setStats]);
+    // Lazy-init audio context on first user interaction
+    const ensureAudio = () => {
+        var _a;
+        if (!audioCtx.current) {
+            audioCtx.current = createAudioContext();
+            if (audioCtx.current) {
+                masterGainRef.current = audioCtx.current.createGain();
+                masterGainRef.current.gain.setValueAtTime(volume, audioCtx.current.currentTime);
+                masterGainRef.current.connect(audioCtx.current.destination);
+            }
+        }
+        if (((_a = audioCtx.current) === null || _a === void 0 ? void 0 : _a.state) === "suspended")
+            audioCtx.current.resume();
+    };
+    // Keep masterGain in sync when volume slider changes
+    useEffect(() => {
+        if (masterGainRef.current && audioCtx.current) {
+            masterGainRef.current.gain.setValueAtTime(volume, audioCtx.current.currentTime);
+        }
+    }, [volume]);
+    const addExercise = (ex) => {
+        ensureAudio();
+        setTasks(prev => [...prev, { id: uid(), exerciseId: ex.id, name: ex.name, icon: ex.icon, minutes: ex.defaultMin, categoryId: ex.categoryId, youtubeUrl: ex.youtubeUrl || "" }]);
+    };
+    const startSession = () => {
+        var _a;
+        ensureAudio();
+        // Reset all session progress when starting fresh
+        setSessionCurrent(0);
+        setSessionSecondsLeft(((_a = tasks[0]) === null || _a === void 0 ? void 0 : _a.minutes) * 60 || 0);
+        setSessionRunning(false);
+        setSessionHasStarted(false);
+        setSessionDone(false);
+        sessionElapsedRef.current = 0;
+        sessionCommittedRef.current = new Set();
+        setSessionActive(true);
+        setTab("active");
+    };
+    const endSession = () => {
+        setSessionActive(false);
+        setSessionRunning(false);
+        setSessionDone(false);
+        setSessionHasStarted(false);
+        setSessionCurrent(0);
+        sessionElapsedRef.current = 0;
+        sessionCommittedRef.current = new Set();
+        setTab("session");
+    };
+    const backToMenu = () => {
+        setSessionActive(false);
+        setSessionRunning(false);
+        setSessionDone(false);
+        setSessionHasStarted(false);
+        setSessionCurrent(0);
+        sessionElapsedRef.current = 0;
+        sessionCommittedRef.current = new Set();
+        setTab("library");
+    };
+    const returnToSession = () => setTab("active");
+    const NAV_TABS = [
+        { id: "library", label: "Library" },
+        { id: "presets", label: presets.length > 0 ? `Presets (${presets.length})` : "Presets" },
+        { id: "session", label: tasks.length > 0 ? `Session (${tasks.length})` : "Session" },
+    ];
+    const statsCount = Object.values(stats).filter(s => s.totalSec > 0).length;
+    const sessionInProgress = sessionActive && !sessionDone;
+    return (React.createElement("div", { style: base.app, onClick: ensureAudio },
+        React.createElement("style", null, `* { box-sizing: border-box; } ::-webkit-scrollbar { display: none; } input, textarea { color-scheme: dark; } @keyframes activePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.7)} }`),
+        React.createElement("div", { style: base.header },
+            React.createElement("div", { style: base.headerLeft },
+                React.createElement("p", { style: base.headerTitle }, "\uD83C\uDFB8 GuitarFlow"),
+                React.createElement("p", { style: base.headerSub }, "Practice Session Planner")),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                tab === "active" && sessionActive && (React.createElement("button", { style: Object.assign(Object.assign({}, base.pillBtn(false)), { fontSize: 12, color: C.muted }), onClick: backToMenu }, "\u21A9 End")),
+                (React.createElement("button", { title: "Library", onClick: () => setTab("library"), style: {
+                        width: 36, height: 36, borderRadius: 8, padding: 0, cursor: "pointer",
+                        border: tab === "library" ? `1px solid ${C.amber}` : "1px solid #2A2A2A",
+                        background: tab === "library" ? "#C8873A22" : "none",
+                        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    } },
+                    React.createElement("svg", { width: "17", height: "17", viewBox: "0 0 24 24", fill: "none", stroke: tab === "library" ? C.amber : C.muted, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+                        React.createElement("path", { d: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }),
+                        React.createElement("polyline", { points: "9 22 9 12 15 12 15 22" })))),
+                (React.createElement("button", { title: "Statistics", onClick: () => setTab(t => t === "stats" ? "library" : "stats"), style: {
+                        width: 36, height: 36, borderRadius: 8, padding: 0, cursor: "pointer",
+                        border: tab === "stats" ? "1px solid #4FC3F7" : "1px solid #2A2A2A",
+                        background: tab === "stats" ? "#4FC3F722" : "none",
+                        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        position: "relative"
+                    } },
+                    React.createElement("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: tab === "stats" ? "#4FC3F7" : "#4A4A5A", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+                        React.createElement("line", { x1: "18", y1: "20", x2: "18", y2: "10" }),
+                        React.createElement("line", { x1: "12", y1: "20", x2: "12", y2: "4" }),
+                        React.createElement("line", { x1: "6", y1: "20", x2: "6", y2: "14" })),
+                    statsCount > 0 && (React.createElement("div", { style: { position: "absolute", top: -3, right: -3, width: 10, height: 10, borderRadius: "50%", background: "#4FC3F7", border: "2px solid #0F0F0F" } })))),
+                (React.createElement("button", { title: "Settings", onClick: () => setTab(t => t === "settings" ? "library" : "settings"), style: { width: 36, height: 36, borderRadius: 8, background: tab === "settings" ? "#C8873A22" : "none", border: tab === "settings" ? `1px solid ${C.amber}` : "1px solid #2A2A2A", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 } },
+                    React.createElement("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: tab === "settings" ? C.amber : C.muted, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+                        React.createElement("circle", { cx: "12", cy: "12", r: "3" }),
+                        React.createElement("path", { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" })))))),
+        tab !== "settings" && tab !== "stats" && (React.createElement("div", { style: base.navBar },
+            NAV_TABS.map(t => (React.createElement("button", { key: t.id, style: base.navBtn(tab === t.id), onClick: () => setTab(t.id) }, t.label))),
+            sessionInProgress && (React.createElement("button", { style: Object.assign(Object.assign({}, base.navBtn(tab === "active")), { color: tab === "active" ? "#34D399" : "#2A5A3A", borderBottomColor: tab === "active" ? "#34D399" : "transparent", position: "relative" }), onClick: () => setTab("active") },
+                "\u25B6 Active",
+                React.createElement("span", { style: { position: "absolute", top: 4, right: 4, width: 6, height: 6, borderRadius: "50%", background: "#34D399", animation: "activePulse 1.5s ease-in-out infinite" } }))))),
+        sessionInProgress && tab !== "active" && (React.createElement("div", { style: { background: "#0D1A0D", borderBottom: "1px solid #2A5A2A", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10 } },
+            React.createElement("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#34D399", flexShrink: 0, display: "inline-block" } }),
+            React.createElement("span", { style: { fontSize: 12, color: "#34D399", flex: 1, fontWeight: 600 } },
+                "Session paused \u00B7 ", (_a = tasks[sessionCurrent]) === null || _a === void 0 ? void 0 :
+                _a.name),
+            React.createElement("button", { onClick: returnToSession, style: { fontSize: 11, background: "#34D39922", border: "1px solid #34D39966", borderRadius: 6, color: "#34D399", padding: "4px 10px", cursor: "pointer", fontWeight: 700 } }, "Resume \u25B6"))),
+        tab === "library" && React.createElement(LibraryScreen, { exercises: exercises, categories: categories, tasks: tasks, onAdd: addExercise, stats: stats }),
+        tab === "presets" && React.createElement(PresetsScreen, { presets: presets, setPresets: setPresets, tasks: tasks, setTasks: setTasks, onLoadGoToSession: () => setTab("session") }),
+        tab === "session" && React.createElement(SessionScreen, { tasks: tasks, setTasks: setTasks, onStart: startSession, sessionInProgress: sessionInProgress, onReturnToSession: returnToSession, presets: presets, setPresets: setPresets }),
+        tab === "settings" && React.createElement(SettingsScreen, { exercises: exercises, setExercises: setExercises, categories: categories, setCategories: setCategories, volume: volume, onVolumeChange: setVolume }),
+        tab === "stats" && React.createElement(StatsScreen, { stats: stats, exercises: exercises, onClear: () => setStats({}) }),
+        tab === "active" && React.createElement(ActiveSessionScreen, { tasks: tasks, onFinish: endSession, onBackToMenu: backToMenu, audioCtx: audioCtx, masterGainRef: masterGainRef, onCommitStats: commitStats, isVisible: tab === "active", current: sessionCurrent, setCurrent: setSessionCurrent, secondsLeft: sessionSecondsLeft, setSecondsLeft: setSessionSecondsLeft, running: sessionRunning, setRunning: setSessionRunning, hasStarted: sessionHasStarted, setHasStarted: setSessionHasStarted, done: sessionDone, setDone: setSessionDone, elapsedRef: sessionElapsedRef, committedRef: sessionCommittedRef })));
+}
+
+
+      var root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(React.createElement(App, null));
+
+      // Success — hide boot screen
+      clearTimeout(watchdog);
+      var b = document.getElementById('boot');
+      if (b) b.style.display = 'none';
+    } catch(e) {
+      bootErr('Startup error', (e && e.stack) || String(e));
+    }
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js').catch(function(){});
+      });
+    }
+  </script>
+</body>
+</html>

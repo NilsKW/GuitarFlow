@@ -1,0 +1,4 @@
+/*
+  Content-Security-Policy: default-src 'self' https://unpkg.com https://img.youtube.com https://www.youtube.com; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://img.youtube.com https://i.ytimg.com; connect-src 'self' https://unpkg.com;
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
