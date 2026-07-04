@@ -119,6 +119,7 @@ const STRINGS = {
     exerciseOf: "of",
     remaining: "remaining",
     skipBtn: "Skip →",
+    previousBtn: "← Previous",
     pauseBtn: "⏸ Pause",
     resumePlayBtn: "▶ Resume",
     playBtn: "▶ Play",
@@ -236,6 +237,7 @@ const STRINGS = {
     exerciseOf: "sur",
     remaining: "restant",
     skipBtn: "Passer →",
+    previousBtn: "← Précédent",
     pauseBtn: "⏸ Pause",
     resumePlayBtn: "▶ Reprendre",
     playBtn: "▶ Démarrer",
@@ -2485,6 +2487,18 @@ function ActiveSessionScreen({
   const metronomeStopRef = useRef(null); // fn to stop current metronome
   const wakeLockRef = useRef(null); // Screen Wake Lock API sentinel
   const [metroOn, setMetroOn] = useState(false);
+  const [liveBpm, setLiveBpm] = useState(90);
+  const [liveBeatsPerBar, setLiveBeatsPerBar] = useState(4);
+
+  // Metronome is available on every exercise, independent of the library's
+  // default BPM setting. Each new exercise starts with the toggle off, seeded
+  // from that exercise's configured default (or a sensible fallback).
+  useEffect(() => {
+    const task = tasks[current];
+    setMetroOn(false);
+    setLiveBpm(task?.bpm > 0 ? task.bpm : 90);
+    setLiveBeatsPerBar(task?.beatsPerBar || 4);
+  }, [current]);
 
   // ── Screen Wake Lock: keep screen on during active session ────────────────
   useEffect(() => {
@@ -2512,15 +2526,14 @@ function ActiveSessionScreen({
     };
   }, []);
 
-  // ── Metronome: start/stop when metroOn, running, or current task changes ──
+  // ── Metronome: start/stop when metroOn, running, or the live BPM/time signature changes ──
   useEffect(() => {
     if (metronomeStopRef.current) {
       metronomeStopRef.current();
       metronomeStopRef.current = null;
     }
-    const task = tasks[current];
-    if (metroOn && running && task && task.bpm > 0) {
-      metronomeStopRef.current = startMetronome(audioCtx.current, masterGainRef?.current, task.bpm, task.beatsPerBar || 4);
+    if (metroOn && running && liveBpm > 0) {
+      metronomeStopRef.current = startMetronome(audioCtx.current, masterGainRef?.current, liveBpm, liveBeatsPerBar);
     }
     return () => {
       if (metronomeStopRef.current) {
@@ -2528,7 +2541,7 @@ function ActiveSessionScreen({
         metronomeStopRef.current = null;
       }
     };
-  }, [metroOn, running, current]);
+  }, [metroOn, running, liveBpm, liveBeatsPerBar]);
 
   // Auto-pause when user navigates away; resume is manual
   useEffect(() => {
@@ -2630,6 +2643,18 @@ function ActiveSessionScreen({
   const skip = () => {
     clearInterval(intervalRef.current);
     advanceRef.current();
+  };
+
+  // Go back to the previous exercise — lets you recover from an accidental
+  // tap that skipped ahead when you meant to pause/resume instead.
+  const goBack = () => {
+    if (current === 0) return;
+    clearInterval(intervalRef.current);
+    flushStats(current);
+    const prevIndex = current - 1;
+    elapsedRef.current = 0;
+    setCurrent(prevIndex);
+    setSecondsLeft(tasks[prevIndex].minutes * 60);
   };
 
   // Urgency pulse when ≤10s left
@@ -2758,6 +2783,14 @@ function ActiveSessionScreen({
       marginTop: 18
     }
   }, /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...base.pillBtn(false),
+      opacity: current === 0 ? 0.4 : 1,
+      cursor: current === 0 ? "default" : "pointer"
+    },
+    onClick: goBack,
+    disabled: current === 0
+  }, T("previousBtn")), /*#__PURE__*/React.createElement("button", {
     style: base.pillBtn(false),
     onClick: skip
   }, T("skipBtn")), /*#__PURE__*/React.createElement("button", {
@@ -2770,12 +2803,12 @@ function ActiveSessionScreen({
       setRunning(r => !r);
       setHasStarted(true);
     }
-  }, running ? T("pauseBtn") : hasStarted ? T("resumePlayBtn") : T("playBtn"))), currentTask?.bpm > 0 && /*#__PURE__*/React.createElement("div", {
+  }, running ? T("pauseBtn") : hasStarted ? T("resumePlayBtn") : T("playBtn"))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       display: "flex",
+      flexDirection: "column",
       alignItems: "center",
-      justifyContent: "center",
       gap: 10
     }
   }, /*#__PURE__*/React.createElement("button", {
@@ -2793,13 +2826,76 @@ function ActiveSessionScreen({
       alignItems: "center",
       gap: 8
     }
-  }, metroOn ? T("metronomeOn") : T("metronomeOff")), /*#__PURE__*/React.createElement("span", {
+  }, metroOn ? T("metronomeOn") : T("metronomeOff")), metroOn && /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 11,
-      color: C.muted,
-      fontFamily: "monospace"
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      flexWrap: "wrap",
+      justifyContent: "center"
     }
-  }, currentTask.bpm, " BPM · ", currentTask.beatsPerBar || 4, "/4"))), /*#__PURE__*/React.createElement(YouTubeCard, {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setLiveBpm(b => Math.max(10, b - 5)),
+    style: {
+      width: 26,
+      height: 26,
+      borderRadius: "50%",
+      background: "#222",
+      border: "1px solid #333",
+      color: C.cream,
+      fontSize: 14,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, "−"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontFamily: "monospace",
+      color: C.amber,
+      fontWeight: 700,
+      width: 60,
+      textAlign: "center"
+    }
+  }, liveBpm, " BPM"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setLiveBpm(b => Math.min(200, b + 5)),
+    style: {
+      width: 26,
+      height: 26,
+      borderRadius: "50%",
+      background: "#222",
+      border: "1px solid #333",
+      color: C.cream,
+      fontSize: 14,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, "+")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 4
+    }
+  }, [1, 2, 3, 4, 5, 6, 7, 8].map(n => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    onClick: () => setLiveBeatsPerBar(n),
+    style: {
+      width: 24,
+      height: 24,
+      borderRadius: 6,
+      border: `1px solid ${liveBeatsPerBar === n ? C.amber : "#2A2A2A"}`,
+      background: liveBeatsPerBar === n ? "#C8873A22" : "#1A1A1A",
+      color: liveBeatsPerBar === n ? C.amber : C.muted,
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, n)))))), /*#__PURE__*/React.createElement(YouTubeCard, {
     videoId: extractYouTubeId(currentTask?.youtubeUrl)
   }), /*#__PURE__*/React.createElement("div", {
     style: base.card

@@ -19,7 +19,7 @@ const STRINGS = {
     saveCurrentPreset: "💾 Save Current Session as Preset", saveCurrentEmpty: " (queue is empty)",
     presetName: "Preset name", saveBtn: "💾 Save", loadBtn: "Load ▶", keepBtn: "Keep", deleteBtn: "Delete",
     nowPlaying: "Now Playing", exerciseOf: "of", remaining: "remaining",
-    skipBtn: "Skip →", pauseBtn: "⏸ Pause", resumePlayBtn: "▶ Resume", playBtn: "▶ Play",
+    skipBtn: "Skip →", previousBtn: "← Previous", pauseBtn: "⏸ Pause", resumePlayBtn: "▶ Resume", playBtn: "▶ Play",
     refVideo: "Reference Video", opensYoutube: "Opens YouTube ↗",
     sessionSetlist: "Session Setlist", done: "done", overallProgress: "Overall Progress",
     backToMenu: "↩ Back to Main Menu",
@@ -68,7 +68,7 @@ const STRINGS = {
     saveCurrentPreset: "💾 Enregistrer la séance comme modèle", saveCurrentEmpty: " (file vide)",
     presetName: "Nom du modèle", saveBtn: "💾 Enregistrer", loadBtn: "Charger ▶", keepBtn: "Garder", deleteBtn: "Supprimer",
     nowPlaying: "En cours", exerciseOf: "sur", remaining: "restant",
-    skipBtn: "Passer →", pauseBtn: "⏸ Pause", resumePlayBtn: "▶ Reprendre", playBtn: "▶ Démarrer",
+    skipBtn: "Passer →", previousBtn: "← Précédent", pauseBtn: "⏸ Pause", resumePlayBtn: "▶ Reprendre", playBtn: "▶ Démarrer",
     refVideo: "Vidéo de référence", opensYoutube: "Ouvrir YouTube ↗",
     sessionSetlist: "Setlist de séance", done: "terminé(s)", overallProgress: "Progression globale",
     backToMenu: "↩ Retour au menu",
@@ -1051,6 +1051,18 @@ function ActiveSessionScreen({
   const metronomeStopRef = useRef(null);  // fn to stop current metronome
   const wakeLockRef      = useRef(null);  // Screen Wake Lock API sentinel
   const [metroOn, setMetroOn] = useState(false);
+  const [liveBpm, setLiveBpm] = useState(90);
+  const [liveBeatsPerBar, setLiveBeatsPerBar] = useState(4);
+
+  // Metronome is available on every exercise, independent of the library's
+  // default BPM setting. Each new exercise starts with the toggle off, seeded
+  // from that exercise's configured default (or a sensible fallback).
+  useEffect(() => {
+    const task = tasks[current];
+    setMetroOn(false);
+    setLiveBpm(task?.bpm > 0 ? task.bpm : 90);
+    setLiveBeatsPerBar(task?.beatsPerBar || 4);
+  }, [current]);
 
   // ── Screen Wake Lock: keep screen on during active session ────────────────
   useEffect(() => {
@@ -1073,15 +1085,14 @@ function ActiveSessionScreen({
     };
   }, []);
 
-  // ── Metronome: start/stop when metroOn, running, or current task changes ──
+  // ── Metronome: start/stop when metroOn, running, or the live BPM/time signature changes ──
   useEffect(() => {
     if (metronomeStopRef.current) { metronomeStopRef.current(); metronomeStopRef.current = null; }
-    const task = tasks[current];
-    if (metroOn && running && task && task.bpm > 0) {
-      metronomeStopRef.current = startMetronome(audioCtx.current, masterGainRef?.current, task.bpm, task.beatsPerBar || 4);
+    if (metroOn && running && liveBpm > 0) {
+      metronomeStopRef.current = startMetronome(audioCtx.current, masterGainRef?.current, liveBpm, liveBeatsPerBar);
     }
     return () => { if (metronomeStopRef.current) { metronomeStopRef.current(); metronomeStopRef.current = null; } };
-  }, [metroOn, running, current]);
+  }, [metroOn, running, liveBpm, liveBeatsPerBar]);
 
   // Auto-pause when user navigates away; resume is manual
   useEffect(() => {
@@ -1189,6 +1200,18 @@ function ActiveSessionScreen({
 
   const skip = () => { clearInterval(intervalRef.current); advanceRef.current(); };
 
+  // Go back to the previous exercise — lets you recover from an accidental
+  // tap that skipped ahead when you meant to pause/resume instead.
+  const goBack = () => {
+    if (current === 0) return;
+    clearInterval(intervalRef.current);
+    flushStats(current);
+    const prevIndex = current - 1;
+    elapsedRef.current = 0;
+    setCurrent(prevIndex);
+    setSecondsLeft(tasks[prevIndex].minutes * 60);
+  };
+
   // Urgency pulse when ≤10s left
   const urgent = secondsLeft <= 10 && secondsLeft > 0 && running;
 
@@ -1234,26 +1257,46 @@ function ActiveSessionScreen({
             <div style={{ height: "100%", width: `${taskPct}%`, background: urgent ? "linear-gradient(90deg,#6B0A0A,#F87171)" : "linear-gradient(90deg,#6B3A0A,#C8873A)", borderRadius: 2, transition: "width 1s linear, background 0.3s" }} />
           </div>
           <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 18 }}>
+            <button
+              style={{ ...base.pillBtn(false), opacity: current === 0 ? 0.4 : 1, cursor: current === 0 ? "default" : "pointer" }}
+              onClick={goBack}
+              disabled={current === 0}
+            >{T("previousBtn")}</button>
             <button style={base.pillBtn(false)} onClick={skip}>{T("skipBtn")}</button>
             <button style={{ ...base.pillBtn(true), width: "auto", padding: "12px 28px" }} onClick={() => { setRunning(r => !r); setHasStarted(true); }}>
               {running ? T("pauseBtn") : hasStarted ? T("resumePlayBtn") : T("playBtn")}
             </button>
           </div>
-          {/* Metronome toggle — only shown if current task has BPM set */}
-          {currentTask?.bpm > 0 && (
-            <div style={{ marginTop: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-              <button
-                onClick={() => setMetroOn(m => !m)}
-                style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${metroOn ? "#34D399" : "#2A2A2A"}`,
-                  background: metroOn ? "#34D39922" : "#1A1A1A", color: metroOn ? "#34D399" : C.muted,
-                  fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                {metroOn ? T("metronomeOn") : T("metronomeOff")}
-              </button>
-              <span style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>
-                {currentTask.bpm} BPM · {currentTask.beatsPerBar || 4}/4
-              </span>
-            </div>
-          )}
+          {/* Metronome — on/off toggle always available; BPM & time signature
+              only shown once switched on, adjustable live for this exercise. */}
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={() => setMetroOn(m => !m)}
+              style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${metroOn ? "#34D399" : "#2A2A2A"}`,
+                background: metroOn ? "#34D39922" : "#1A1A1A", color: metroOn ? "#34D399" : C.muted,
+                fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+              {metroOn ? T("metronomeOn") : T("metronomeOff")}
+            </button>
+            {metroOn && (
+              <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button onClick={() => setLiveBpm(b => Math.max(10, b - 5))} style={{ width: 26, height: 26, borderRadius: "50%", background: "#222", border: "1px solid #333", color: C.cream, fontSize: 14, cursor: "pointer", padding: 0 }}>−</button>
+                  <span style={{ fontSize: 13, fontFamily: "monospace", color: C.amber, fontWeight: 700, width: 60, textAlign: "center" }}>{liveBpm} BPM</span>
+                  <button onClick={() => setLiveBpm(b => Math.min(200, b + 5))} style={{ width: 26, height: 26, borderRadius: "50%", background: "#222", border: "1px solid #333", color: C.cream, fontSize: 14, cursor: "pointer", padding: 0 }}>+</button>
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[1,2,3,4,5,6,7,8].map(n => (
+                    <button key={n} onClick={() => setLiveBeatsPerBar(n)}
+                      style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${liveBeatsPerBar === n ? C.amber : "#2A2A2A"}`,
+                        background: liveBeatsPerBar === n ? "#C8873A22" : "#1A1A1A",
+                        color: liveBeatsPerBar === n ? C.amber : C.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* YouTube reference video */}
