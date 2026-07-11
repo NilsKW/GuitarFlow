@@ -1472,17 +1472,44 @@ function ExerciseEditor({ editEx, categories, setExercises, onBack }) {
   const T = useT();
   const lang = useLang();
   const isNew = editEx === "new";
+  // Show the translated name/description/sub-exercise labels for editing
+  // (so a French user editing a built-in exercise sees French text), but
+  // remember the original stored text alongside each field. On save, a
+  // field is only persisted as-typed if it was actually changed from what
+  // was displayed — otherwise the original canonical (English) text is
+  // kept, so translations keep working after switching languages again.
   const [form, setForm] = useState(
     isNew
       ? { name: "", description: "", defaultMin: 10, icon: "🎸", categoryId: categories[0]?.id || "", youtubeUrl: "", bpm: 0, beatsPerBar: 4, subExercises: [] }
-      : { ...editEx, youtubeUrl: editEx.youtubeUrl || "", bpm: editEx.bpm || 0, beatsPerBar: editEx.beatsPerBar || 4, subExercises: editEx.subExercises || [] }
+      : {
+          ...editEx,
+          name: exerciseName(editEx, lang),
+          description: exerciseDesc(editEx, lang) || "",
+          youtubeUrl: editEx.youtubeUrl || "", bpm: editEx.bpm || 0, beatsPerBar: editEx.beatsPerBar || 4,
+          subExercises: (editEx.subExercises || []).map(s => ({ id: s.id, label: subExerciseLabel(s, lang), _origLabel: s.label })),
+        }
   );
   const [iconPicker, setIconPicker] = useState(false);
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = () => {
     if (!form.name.trim()) return;
-    const cleaned = { ...form, defaultMin: Number(form.defaultMin), subExercises: (form.subExercises || []).filter(s => s.label.trim()) };
+    let finalName = form.name;
+    let finalDesc = form.description;
+    let finalSub = (form.subExercises || []).filter(s => s.label.trim());
+    if (!isNew) {
+      if (form.name === exerciseName(editEx, lang)) finalName = editEx.name;
+      if (form.description === exerciseDesc(editEx, lang)) finalDesc = editEx.description;
+      finalSub = finalSub.map(s => {
+        if (s._origLabel !== undefined && s.label === subExerciseLabel({ id: s.id, label: s._origLabel }, lang)) {
+          return { id: s.id, label: s._origLabel };
+        }
+        return { id: s.id, label: s.label };
+      });
+    } else {
+      finalSub = finalSub.map(s => ({ id: s.id, label: s.label }));
+    }
+    const cleaned = { ...form, name: finalName, description: finalDesc, defaultMin: Number(form.defaultMin), subExercises: finalSub };
     if (isNew) {
       setExercises(prev => [...prev, { ...cleaned, id: uid() }]);
     } else {
@@ -1623,16 +1650,22 @@ function ExerciseEditor({ editEx, categories, setExercises, onBack }) {
 // ── CATEGORY EDITOR (standalone component so hooks are never conditional) ──
 function CategoryEditor({ editCat, setExercises, setCategories, onBack }) {
   const T = useT();
+  const lang = useLang();
   const isNew = editCat === "new";
-  const [form, setForm] = useState(isNew ? { name: "", color: COLOR_PALETTE[0] } : { ...editCat });
+  const [form, setForm] = useState(isNew ? { name: "", color: COLOR_PALETTE[0] } : { ...editCat, name: categoryName(editCat, lang) });
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = () => {
     if (!form.name.trim()) return;
+    // Only keep the user's edit if it actually differs from the translated
+    // text that was displayed — otherwise preserve the original canonical
+    // name so translations keep working after switching languages again.
+    const finalName = (!isNew && form.name === categoryName(editCat, lang)) ? editCat.name : form.name;
+    const finalForm = { ...form, name: finalName };
     if (isNew) {
-      setCategories(prev => [...prev, { ...form, id: uid() }]);
+      setCategories(prev => [...prev, { ...finalForm, id: uid() }]);
     } else {
-      setCategories(prev => prev.map(c => c.id === form.id ? form : c));
+      setCategories(prev => prev.map(c => c.id === form.id ? finalForm : c));
     }
     onBack();
   };
