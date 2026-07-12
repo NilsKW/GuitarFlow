@@ -776,300 +776,55 @@ function startMetronome(ctx, masterGain, bpm, beatsPerBar, onBeat) {
 const DEFAULT_CATEGORIES = window.EXERCISES_DATA && window.EXERCISES_DATA.categories || [];
 const DEFAULT_EXERCISES = window.EXERCISES_DATA && window.EXERCISES_DATA.exercises || [];
 
-// ─── SUB-EXERCISES ────────────────────────────────────────────────────────────
-// Any exercise can be broken down into checkable sub-exercises (see ExerciseEditor
-// and ActiveSessionScreen). Scale exercises ship with a standard practice
-// checklist: ascending/descending through each interval up to a 9th, plus
-// note-groupings from 3 to 7 notes. Translations for that built-in checklist
-// (keyed by the sub-exercise ids defined in exercises-data.js) live here.
-const INTERVAL_NAMES = {
-  en: {
-    2: "2nds",
-    3: "3rds",
-    4: "4ths",
-    5: "5ths",
-    6: "6ths",
-    7: "7ths",
-    8: "octaves",
-    9: "9ths"
-  },
-  fr: {
-    2: "secondes",
-    3: "tierces",
-    4: "quartes",
-    5: "quintes",
-    6: "sixtes",
-    7: "septièmes",
-    8: "octaves",
-    9: "neuvièmes"
-  }
-};
-const SUBEXERCISE_I18N = {};
-[2, 3, 4, 5, 6, 7, 8, 9].forEach(n => {
-  SUBEXERCISE_I18N[`sub-${n}-up`] = {
-    en: `Ascending in ${INTERVAL_NAMES.en[n]}`,
-    fr: `Montée en ${INTERVAL_NAMES.fr[n]}`
-  };
-  SUBEXERCISE_I18N[`sub-${n}-down`] = {
-    en: `Descending in ${INTERVAL_NAMES.en[n]}`,
-    fr: `Descente en ${INTERVAL_NAMES.fr[n]}`
-  };
+// ─── TRANSLATIONS FOR BUILT-IN EXERCISES ──────────────────────────────────────
+// Categories/exercises/sub-exercises can carry extra language fields directly
+// in exercises-data.js (e.g. name_fr, description_fr, label_fr) — see that
+// file for the editable bilingual data. These lookup tables index the
+// original entries by id, so exerciseName()/exerciseDesc()/categoryName()/
+// subExerciseLabel() below can find the right translation.
+const CATEGORY_DEFS = {};
+DEFAULT_CATEGORIES.forEach(cat => {
+  CATEGORY_DEFS[cat.id] = cat;
 });
-[3, 4, 5, 6, 7].forEach(n => {
-  SUBEXERCISE_I18N[`sub-grp${n}-up`] = {
-    en: `Group of ${n} ascending`,
-    fr: `Groupe de ${n} montant`
-  };
-  SUBEXERCISE_I18N[`sub-grp${n}-down`] = {
-    en: `Group of ${n} descending`,
-    fr: `Groupe de ${n} descendant`
-  };
+const EXERCISE_DEFS = {};
+DEFAULT_EXERCISES.forEach(ex => {
+  EXERCISE_DEFS[ex.id] = ex;
 });
-
-// FR/EN translations for the built-in categories and exercises above, keyed by id.
-// User-created (custom) exercises/categories have no entry here, so exerciseName()/
-// exerciseDesc()/categoryName() fall back to the literal stored name/description.
-const CATEGORY_I18N = {
-  "cat-warmup": {
-    en: "Warm-Up",
-    fr: "Échauffement"
-  },
-  "cat-scales": {
-    en: "Scales",
-    fr: "Gammes"
-  },
-  "cat-chords": {
-    en: "Chords",
-    fr: "Accords"
-  },
-  "cat-tech": {
-    en: "Technique",
-    fr: "Technique"
-  },
-  "cat-improv": {
-    en: "Improv",
-    fr: "Improvisation"
-  },
-  "cat-song": {
-    en: "Song Work",
-    fr: "Travail sur morceau"
-  },
-  "cat-ear": {
-    en: "Ear Training",
-    fr: "Oreille musicale"
-  }
-};
-const EXERCISE_I18N = {
-  warm1: {
-    en: {
-      name: "Finger Stretches",
-      description: "Gently stretch each finger to prevent injuries."
-    },
-    fr: {
-      name: "Étirements des doigts",
-      description: "Étirez doucement chaque doigt pour éviter les blessures."
-    }
-  },
-  warm2: {
-    en: {
-      name: "Chromatic Crawl",
-      description: "Play 1-2-3-4 across all strings, ascending and descending."
-    },
-    fr: {
-      name: "Gamme chromatique",
-      description: "Jouez 1-2-3-4 sur toutes les cordes, en montant et en descendant."
-    }
-  },
-  warm3: {
-    en: {
-      name: "Spider Exercise",
-      description: "Cross-string pattern to build independence."
-    },
-    fr: {
-      name: "Exercice de l'araignée",
-      description: "Motif croisé entre les cordes pour développer l'indépendance des doigts."
-    }
-  },
-  scale1: {
-    en: {
-      name: "Pentatonic (A minor)",
-      description: "Run the Am pentatonic in all 5 positions."
-    },
-    fr: {
-      name: "Pentatonique (La mineur)",
-      description: "Parcourez la gamme pentatonique de La mineur dans les 5 positions."
-    }
-  },
-  scale2: {
-    en: {
-      name: "Major Scale Modes",
-      description: "Practice Ionian, Dorian, Phrygian across the neck."
-    },
-    fr: {
-      name: "Modes de la gamme majeure",
-      description: "Travaillez les modes ionien, dorien et phrygien sur tout le manche."
-    }
-  },
-  scale3: {
-    en: {
-      name: "Blues Scale",
-      description: "Add the b5 note to your pentatonic for bluesy feel."
-    },
-    fr: {
-      name: "Gamme blues",
-      description: "Ajoutez la quinte diminuée à votre pentatonique pour une couleur blues."
-    }
-  },
-  chord1: {
-    en: {
-      name: "Barre Chord Transitions",
-      description: "Switch between F, B, and Bm shapes fluidly."
-    },
-    fr: {
-      name: "Transitions d'accords barrés",
-      description: "Enchaînez fluidement les accords Fa, Si et Si mineur en barré."
-    }
-  },
-  chord2: {
-    en: {
-      name: "Open Chord Shapes",
-      description: "Clean up G, C, D, Em, Am transitions."
-    },
-    fr: {
-      name: "Accords ouverts",
-      description: "Nettoyez les transitions entre Sol, Do, Ré, Mi mineur et La mineur."
-    }
-  },
-  chord3: {
-    en: {
-      name: "Jazz Voicings",
-      description: "Learn ii-V-I progressions with 7th chord voicings."
-    },
-    fr: {
-      name: "Voicings jazz",
-      description: "Apprenez les progressions ii-V-I avec des voicings d'accords de septième."
-    }
-  },
-  riff1: {
-    en: {
-      name: "Alternate Picking",
-      description: "Strict down-up picking at various tempos with metronome."
-    },
-    fr: {
-      name: "Aller-retour (alternate picking)",
-      description: "Médiator strict aller-retour à différents tempos avec métronome."
-    }
-  },
-  riff2: {
-    en: {
-      name: "Legato & Hammer-Ons",
-      description: "Build smooth phrasing with hammer-ons and pull-offs."
-    },
-    fr: {
-      name: "Legato et hammer-ons",
-      description: "Construisez un phrasé fluide avec des hammer-ons et pull-offs."
-    }
-  },
-  riff3: {
-    en: {
-      name: "Bending & Vibrato",
-      description: "Accurate bends to pitch, controlled vibrato width and speed."
-    },
-    fr: {
-      name: "Bends et vibrato",
-      description: "Bends précis en hauteur, vibrato à amplitude et vitesse contrôlées."
-    }
-  },
-  riff4: {
-    en: {
-      name: "Palm Muting",
-      description: "Control the mute tightness across different rhythms."
-    },
-    fr: {
-      name: "Palm muting",
-      description: "Contrôlez l'intensité de l'étouffement sur différents rythmes."
-    }
-  },
-  improv1: {
-    en: {
-      name: "Jam over Backing Track",
-      description: "Free improvisation over a chosen key backing track."
-    },
-    fr: {
-      name: "Improviser sur un backing track",
-      description: "Improvisation libre sur un backing track dans une tonalité choisie."
-    }
-  },
-  improv2: {
-    en: {
-      name: "Solo Construction",
-      description: "Build a solo with motif, development, and climax."
-    },
-    fr: {
-      name: "Construction de solo",
-      description: "Construisez un solo avec motif, développement et point culminant."
-    }
-  },
-  song1: {
-    en: {
-      name: "Riff Memorization",
-      description: "Learn a new riff from memory, no tabs."
-    },
-    fr: {
-      name: "Mémorisation d'un riff",
-      description: "Apprenez un nouveau riff de mémoire, sans tablature."
-    }
-  },
-  song2: {
-    en: {
-      name: "Full Run-Through",
-      description: "Play the song top to bottom without stopping."
-    },
-    fr: {
-      name: "Morceau en entier",
-      description: "Jouez le morceau du début à la fin sans vous arrêter."
-    }
-  },
-  ear1: {
-    en: {
-      name: "Interval Recognition",
-      description: "Identify intervals by ear, then find them on the neck."
-    },
-    fr: {
-      name: "Reconnaissance d'intervalles",
-      description: "Identifiez les intervalles à l'oreille, puis retrouvez-les sur le manche."
-    }
-  }
-};
+const SUBEXERCISE_DEFS = {};
+DEFAULT_EXERCISES.forEach(ex => {
+  (ex.subExercises || []).forEach(sub => {
+    if (!SUBEXERCISE_DEFS[sub.id]) SUBEXERCISE_DEFS[sub.id] = sub;
+  });
+});
 
 // Look up the translated name/description for a built-in exercise (by id or exerciseId).
-// Only applied while the stored text still matches the original English default —
+// Only applied while the stored text still matches the original default text —
 // if the user has renamed/edited it, their text is kept as-is in any language.
-// Custom user-created exercises have no i18n entry and always fall back to stored text.
+// Custom user-created exercises have no matching def and always fall back to stored text.
 function exerciseName(ex, lang) {
   if (!ex) return "";
   const id = ex.exerciseId || ex.id;
-  const i18n = EXERCISE_I18N[id];
-  if (i18n && ex.name === i18n.en.name) return i18n[lang]?.name ?? ex.name;
+  const def = EXERCISE_DEFS[id];
+  if (def && ex.name === def.name && def[`name_${lang}`]) return def[`name_${lang}`];
   return ex.name;
 }
 function exerciseDesc(ex, lang) {
   if (!ex) return "";
   const id = ex.exerciseId || ex.id;
-  const i18n = EXERCISE_I18N[id];
-  if (i18n && ex.description === i18n.en.description) return i18n[lang]?.description ?? ex.description;
+  const def = EXERCISE_DEFS[id];
+  if (def && ex.description === def.description && def[`description_${lang}`]) return def[`description_${lang}`];
   return ex.description;
 }
 function categoryName(cat, lang) {
   if (!cat) return "";
-  const i18n = CATEGORY_I18N[cat.id];
-  if (i18n && cat.name === i18n.en) return i18n[lang] ?? cat.name;
+  const def = CATEGORY_DEFS[cat.id];
+  if (def && cat.name === def.name && def[`name_${lang}`]) return def[`name_${lang}`];
   return cat.name;
 }
 function subExerciseLabel(sub, lang) {
   if (!sub) return "";
-  const i18n = SUBEXERCISE_I18N[sub.id];
-  if (i18n && sub.label === i18n.en) return i18n[lang] ?? sub.label;
+  const def = SUBEXERCISE_DEFS[sub.id];
+  if (def && sub.label === def.label && def[`label_${lang}`]) return def[`label_${lang}`];
   return sub.label;
 }
 const ICONS = ["🎸", "🎵", "🎶", "🎤", "🎷", "🎺", "🥁", "🎹", "⚡", "🔥", "🌟", "💥", "🤘", "✋", "🕷️", "🐛", "🔨", "〰️", "🤚", "🔵", "📝", "▶️", "👂", "🏆", "🎯", "⚙️", "🧠", "💡", "🎯", "🎼"];
