@@ -771,42 +771,19 @@ function startMetronome(ctx, masterGain, bpm, beatsPerBar, onBeat) {
 }
 
 // ─── DEFAULT DATA ─────────────────────────────────────────────────────────────
-
-const DEFAULT_CATEGORIES = [{
-  id: "cat-warmup",
-  name: "Warm-Up",
-  color: "#C8873A"
-}, {
-  id: "cat-scales",
-  name: "Scales",
-  color: "#4FC3F7"
-}, {
-  id: "cat-chords",
-  name: "Chords",
-  color: "#A78BFA"
-}, {
-  id: "cat-tech",
-  name: "Technique",
-  color: "#F87171"
-}, {
-  id: "cat-improv",
-  name: "Improv",
-  color: "#34D399"
-}, {
-  id: "cat-song",
-  name: "Song Work",
-  color: "#FBBF24"
-}, {
-  id: "cat-ear",
-  name: "Ear Training",
-  color: "#FB923C"
-}];
+// The actual exercise/category list lives in exercises-data.js (loaded via a
+// <script> tag before this app code runs), so it can be hand-edited without
+// touching this file. Fall back to empty lists if that file somehow failed to
+// load, so the app still boots (the user can still add exercises manually).
+const DEFAULT_CATEGORIES = window.EXERCISES_DATA && window.EXERCISES_DATA.categories || [];
+const DEFAULT_EXERCISES = window.EXERCISES_DATA && window.EXERCISES_DATA.exercises || [];
 
 // ─── SUB-EXERCISES ────────────────────────────────────────────────────────────
 // Any exercise can be broken down into checkable sub-exercises (see ExerciseEditor
 // and ActiveSessionScreen). Scale exercises ship with a standard practice
 // checklist: ascending/descending through each interval up to a 9th, plus
-// note-groupings from 3 to 7 notes.
+// note-groupings from 3 to 7 notes. Translations for that built-in checklist
+// (keyed by the sub-exercise ids defined in exercises-data.js) live here.
 const INTERVAL_NAMES = {
   en: {
     2: "2nds",
@@ -850,144 +827,6 @@ const SUBEXERCISE_I18N = {};
     fr: `Groupe de ${n} descendant`
   };
 });
-// Stored labels are always the English default text (matching how exercise
-// name/description defaults work) — subExerciseLabel() below translates them.
-function makeScaleSubExercises() {
-  return Object.keys(SUBEXERCISE_I18N).map(id => ({
-    id,
-    label: SUBEXERCISE_I18N[id].en
-  }));
-}
-const DEFAULT_EXERCISES = [{
-  id: "warm1",
-  categoryId: "cat-warmup",
-  name: "Finger Stretches",
-  defaultMin: 3,
-  icon: "✋",
-  description: "Gently stretch each finger to prevent injuries."
-}, {
-  id: "warm2",
-  categoryId: "cat-warmup",
-  name: "Chromatic Crawl",
-  defaultMin: 5,
-  icon: "🐛",
-  description: "Play 1-2-3-4 across all strings, ascending and descending."
-}, {
-  id: "warm3",
-  categoryId: "cat-warmup",
-  name: "Spider Exercise",
-  defaultMin: 5,
-  icon: "🕷️",
-  description: "Cross-string pattern to build independence."
-}, {
-  id: "scale1",
-  categoryId: "cat-scales",
-  name: "Pentatonic (A minor)",
-  defaultMin: 10,
-  icon: "🎵",
-  description: "Run the Am pentatonic in all 5 positions.",
-  subExercises: makeScaleSubExercises()
-}, {
-  id: "scale2",
-  categoryId: "cat-scales",
-  name: "Major Scale Modes",
-  defaultMin: 10,
-  icon: "🎶",
-  description: "Practice Ionian, Dorian, Phrygian across the neck.",
-  subExercises: makeScaleSubExercises()
-}, {
-  id: "scale3",
-  categoryId: "cat-scales",
-  name: "Blues Scale",
-  defaultMin: 8,
-  icon: "🎸",
-  description: "Add the b5 note to your pentatonic for bluesy feel.",
-  subExercises: makeScaleSubExercises()
-}, {
-  id: "chord1",
-  categoryId: "cat-chords",
-  name: "Barre Chord Transitions",
-  defaultMin: 10,
-  icon: "🤘",
-  description: "Switch between F, B, and Bm shapes fluidly."
-}, {
-  id: "chord2",
-  categoryId: "cat-chords",
-  name: "Open Chord Shapes",
-  defaultMin: 7,
-  icon: "🔵",
-  description: "Clean up G, C, D, Em, Am transitions."
-}, {
-  id: "chord3",
-  categoryId: "cat-chords",
-  name: "Jazz Voicings",
-  defaultMin: 12,
-  icon: "🎷",
-  description: "Learn ii-V-I progressions with 7th chord voicings."
-}, {
-  id: "riff1",
-  categoryId: "cat-tech",
-  name: "Alternate Picking",
-  defaultMin: 10,
-  icon: "⚡",
-  description: "Strict down-up picking at various tempos with metronome."
-}, {
-  id: "riff2",
-  categoryId: "cat-tech",
-  name: "Legato & Hammer-Ons",
-  defaultMin: 8,
-  icon: "🔨",
-  description: "Build smooth phrasing with hammer-ons and pull-offs."
-}, {
-  id: "riff3",
-  categoryId: "cat-tech",
-  name: "Bending & Vibrato",
-  defaultMin: 8,
-  icon: "〰️",
-  description: "Accurate bends to pitch, controlled vibrato width and speed."
-}, {
-  id: "riff4",
-  categoryId: "cat-tech",
-  name: "Palm Muting",
-  defaultMin: 7,
-  icon: "🤚",
-  description: "Control the mute tightness across different rhythms."
-}, {
-  id: "improv1",
-  categoryId: "cat-improv",
-  name: "Jam over Backing Track",
-  defaultMin: 15,
-  icon: "🎤",
-  description: "Free improvisation over a chosen key backing track."
-}, {
-  id: "improv2",
-  categoryId: "cat-improv",
-  name: "Solo Construction",
-  defaultMin: 12,
-  icon: "🌟",
-  description: "Build a solo with motif, development, and climax."
-}, {
-  id: "song1",
-  categoryId: "cat-song",
-  name: "Riff Memorization",
-  defaultMin: 15,
-  icon: "📝",
-  description: "Learn a new riff from memory, no tabs."
-}, {
-  id: "song2",
-  categoryId: "cat-song",
-  name: "Full Run-Through",
-  defaultMin: 20,
-  icon: "▶️",
-  description: "Play the song top to bottom without stopping."
-}, {
-  id: "ear1",
-  categoryId: "cat-ear",
-  name: "Interval Recognition",
-  defaultMin: 10,
-  icon: "👂",
-  description: "Identify intervals by ear, then find them on the neck."
-}];
 
 // FR/EN translations for the built-in categories and exercises above, keyed by id.
 // User-created (custom) exercises/categories have no entry here, so exerciseName()/
@@ -4633,14 +4472,21 @@ function App() {
       }
     } // end startApp
 
-    // Chain: load React → load ReactDOM → startApp
+    // Chain: load React → load ReactDOM → load exercise data → startApp
     loadScript(
       'https://unpkg.com/react@18/umd/react.production.min.js',
       function() {
         document.getElementById('boot-sub').textContent = 'Fetching ReactDOM…';
         loadScript(
           'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
-          function() { startApp(); },
+          function() {
+            document.getElementById('boot-sub').textContent = 'Loading exercise library…';
+            loadScript(
+              './exercises-data.js',
+              function() { startApp(); },
+              function() { bootErr('Network error', 'Could not load exercises-data.js'); }
+            );
+          },
           function() { bootErr('Network error', 'Could not load ReactDOM from unpkg.com'); }
         );
       },

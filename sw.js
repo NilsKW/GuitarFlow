@@ -2,11 +2,12 @@
 // On first visit the CDN scripts (React) are cached here,
 // so every subsequent visit — even with no internet — works perfectly.
 
-const CACHE = "guitarflow-v2";
+const CACHE = "guitarflow-v3";
 const PRECACHE = [
   "./index.html",
   "./manifest.json",
   "./icon.svg",
+  "./exercises-data.js",
   "https://unpkg.com/react@18/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
 ];
@@ -27,12 +28,14 @@ self.addEventListener("activate", e => {
   );
 });
 
-// Fetch: network-first for the app shell (HTML) so deployed updates are picked
-// up immediately instead of being masked forever by a stale cached copy;
-// cache-first for everything else (CDN libs, icons) since those are static
-// and benefit from instant, offline-capable loading.
+// Fetch: network-first for the app shell (HTML) and the editable exercise
+// data file, so deployed updates to either are picked up immediately instead
+// of being masked forever by a stale cached copy; cache-first for everything
+// else (CDN libs, icons) since those are static and benefit from instant,
+// offline-capable loading.
 self.addEventListener("fetch", e => {
-  const isAppShell = e.request.mode === "navigate" || e.request.destination === "document";
+  const isAppShell = e.request.mode === "navigate" || e.request.destination === "document"
+    || e.request.url.endsWith("/exercises-data.js");
 
   if (isAppShell) {
     e.respondWith(
