@@ -1183,7 +1183,7 @@ const base = {
     borderRadius: 10,
     border: primary ? "none" : `1px solid #2A2A2A`,
     background: primary ? `linear-gradient(135deg,${C.amber},#A86020)` : C.surface,
-    color: primary ? "#0F0F0F" : "#888",
+    color: primary ? "#0F0F0F" : "#AEB0C0",
     fontSize: primary ? 14 : 12,
     fontWeight: primary ? 800 : 500,
     cursor: "pointer",
@@ -3617,6 +3617,12 @@ function ActiveSessionScreen({
   useEffect(() => {
     setConfirmResetSub(false);
   }, [current]);
+  // Sub-exercise checklist is collapsed by default (just the title + count),
+  // and re-collapses whenever the current exercise changes.
+  const [subExpanded, setSubExpanded] = useState(false);
+  useEffect(() => {
+    setSubExpanded(false);
+  }, [current]);
   const toggleSub = subId => {
     const exId = currentTask?.exerciseId;
     if (!exId) return;
@@ -3715,7 +3721,7 @@ function ActiveSessionScreen({
       fontSize: 10,
       letterSpacing: "0.15em",
       textTransform: "uppercase",
-      color: "#6B5A3A",
+      color: "#A8926A",
       marginBottom: 3
     }
   }, T("exerciseOf2"), " ", current + 1, " ", T("of2"), " ", tasks.length), /*#__PURE__*/React.createElement("div", {
@@ -3741,7 +3747,7 @@ function ActiveSessionScreen({
   }, formatTime(secondsLeft)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10,
-      color: C.muted,
+      color: "#A8926A",
       letterSpacing: "0.1em",
       textTransform: "uppercase"
     }
@@ -3890,22 +3896,38 @@ function ActiveSessionScreen({
         flexShrink: 0
       }
     }, /*#__PURE__*/React.createElement("div", {
+      onClick: () => setSubExpanded(e => !e),
       style: {
         padding: "10px 14px",
-        borderBottom: `1px solid ${C.faint}`,
+        borderBottom: subExpanded ? `1px solid ${C.faint}` : "none",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        gap: 8
+        gap: 8,
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 9
       }
     }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-block",
+        fontSize: 9,
+        color: C.amber,
+        transition: "transform 0.2s ease-out",
+        transform: subExpanded ? "rotate(90deg)" : "rotate(0deg)"
+      }
+    }, "▶"), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         letterSpacing: "0.15em",
         textTransform: "uppercase",
         color: C.muted
       }
-    }, T("subExercisesTitle")), /*#__PURE__*/React.createElement("div", {
+    }, T("subExercisesTitle"))), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -3917,8 +3939,11 @@ function ActiveSessionScreen({
         color: C.amber,
         fontWeight: 700
       }
-    }, doneIds.length, "/", currentTask.subExercises.length, " ", T("done")), !confirmResetSub ? doneIds.length > 0 && /*#__PURE__*/React.createElement("button", {
-      onClick: () => setConfirmResetSub(true),
+    }, doneIds.length, "/", currentTask.subExercises.length, " ", T("done")), subExpanded && (!confirmResetSub ? doneIds.length > 0 && /*#__PURE__*/React.createElement("button", {
+      onClick: e => {
+        e.stopPropagation();
+        setConfirmResetSub(true);
+      },
       style: {
         background: "none",
         border: "none",
@@ -3931,14 +3956,15 @@ function ActiveSessionScreen({
       style: {
         display: "flex",
         gap: 6
-      }
+      },
+      onClick: e => e.stopPropagation()
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => setConfirmResetSub(false),
       style: {
         background: "none",
         border: "1px solid #333",
         borderRadius: 6,
-        color: "#888",
+        color: "#AEB0C0",
         fontSize: 10,
         cursor: "pointer",
         padding: "3px 7px"
@@ -3955,7 +3981,7 @@ function ActiveSessionScreen({
         cursor: "pointer",
         padding: "3px 7px"
       }
-    }, T("resetProgressConfirm"))))), currentTask.subExercises.map(sub => {
+    }, T("resetProgressConfirm")))))), subExpanded && currentTask.subExercises.map(sub => {
       const checked = doneIds.includes(sub.id);
       return /*#__PURE__*/React.createElement("div", {
         key: sub.id,

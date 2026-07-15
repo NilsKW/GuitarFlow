@@ -624,7 +624,7 @@ const base = {
   scrollArea: (pb) => ({ padding: `8px 16px ${pb||100}px`, display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", maxHeight: "calc(100dvh - 175px)" }),
   catChip: (a, col) => ({ padding: "5px 13px", borderRadius: 20, border: `1px solid ${a ? col : "#2A2A2A"}`, background: a ? col+"22" : "transparent", color: a ? col : "#888", fontSize: 12, fontWeight: a ? 600 : 400, cursor: "pointer", whiteSpace: "nowrap" }),
   exCard: (col) => ({ background: C.surface, border: `1px solid ${C.border}`, borderLeft: `3px solid ${col}`, borderRadius: 10, padding: "11px 13px", display: "flex", alignItems: "center", gap: 11, cursor: "pointer", userSelect: "none" }),
-  pillBtn: (primary) => ({ padding: primary ? "13px" : "10px 16px", borderRadius: 10, border: primary ? "none" : `1px solid #2A2A2A`, background: primary ? `linear-gradient(135deg,${C.amber},#A86020)` : C.surface, color: primary ? "#0F0F0F" : "#888", fontSize: primary ? 14 : 12, fontWeight: primary ? 800 : 500, cursor: "pointer", letterSpacing: "0.06em", width: primary ? "100%" : "auto" }),
+  pillBtn: (primary) => ({ padding: primary ? "13px" : "10px 16px", borderRadius: 10, border: primary ? "none" : `1px solid #2A2A2A`, background: primary ? `linear-gradient(135deg,${C.amber},#A86020)` : C.surface, color: primary ? "#0F0F0F" : "#AEB0C0", fontSize: primary ? 14 : 12, fontWeight: primary ? 800 : 500, cursor: "pointer", letterSpacing: "0.06em", width: primary ? "100%" : "auto" }),
   input: { background: "#1A1A1A", border: `1px solid #2A2A2A`, borderRadius: 8, padding: "9px 12px", color: C.cream, fontSize: 13, width: "100%", boxSizing: "border-box", outline: "none", fontFamily: "inherit" },
   label: { fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted, marginBottom: 5, display: "block" },
   sectionTitle: { fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: C.muted, padding: "16px 16px 6px", borderTop: `1px solid ${C.faint}` },
@@ -1648,6 +1648,10 @@ function ActiveSessionScreen({
   // same recurring exercise keeps one running checklist across sessions.
   const [confirmResetSub, setConfirmResetSub] = useState(false);
   useEffect(() => { setConfirmResetSub(false); }, [current]);
+  // Sub-exercise checklist is collapsed by default (just the title + count),
+  // and re-collapses whenever the current exercise changes.
+  const [subExpanded, setSubExpanded] = useState(false);
+  useEffect(() => { setSubExpanded(false); }, [current]);
 
   const toggleSub = (subId) => {
     const exId = currentTask?.exerciseId;
@@ -1696,7 +1700,7 @@ function ActiveSessionScreen({
       <div style={{ padding: "14px 16px 100px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", maxHeight: "calc(100dvh - 110px)" }}>
         {/* Timer card */}
         <div style={{ background: "#151208", border: "1px solid #2A1E08", borderRadius: 16, padding: "22px 18px", textAlign: "center", flexShrink: 0 }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6B5A3A", marginBottom: 3 }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: "#A8926A", marginBottom: 3 }}>
             {T("exerciseOf2")} {current + 1} {T("of2")} {tasks.length}
           </div>
           <div style={{ fontSize: 24, fontWeight: 800, color: C.cream, marginBottom: 18, textTransform: "uppercase", letterSpacing: "0.02em", lineHeight: 1.25 }}>
@@ -1705,7 +1709,7 @@ function ActiveSessionScreen({
           <div style={{ fontSize: 58, fontFamily: "monospace", fontWeight: 700, lineHeight: 1, marginBottom: 6, animation: urgent ? "urgentPulse 0.7s ease-in-out infinite" : "none", color: C.amber }}>
             {formatTime(secondsLeft)}
           </div>
-          <div style={{ fontSize: 10, color: C.muted, letterSpacing: "0.1em", textTransform: "uppercase" }}>{T("remaining")}</div>
+          <div style={{ fontSize: 10, color: "#A8926A", letterSpacing: "0.1em", textTransform: "uppercase" }}>{T("remaining")}</div>
           <div style={{ height: 4, background: "#1E1E1E", borderRadius: 2, margin: "14px 0 0", overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${taskPct}%`, background: urgent ? "linear-gradient(90deg,#6B0A0A,#F87171)" : "linear-gradient(90deg,#6B3A0A,#C8873A)", borderRadius: 2, transition: "width 1s linear, background 0.3s" }} />
           </div>
@@ -1772,23 +1776,29 @@ function ActiveSessionScreen({
           const doneIds = subProgress[currentTask.exerciseId] || [];
           return (
             <div style={{ ...base.card, flexShrink: 0 }}>
-              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.faint}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: C.muted }}>{T("subExercisesTitle")}</span>
+              <div
+                onClick={() => setSubExpanded(e => !e)}
+                style={{ padding: "10px 14px", borderBottom: subExpanded ? `1px solid ${C.faint}` : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, cursor: "pointer" }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <span style={{ display: "inline-block", fontSize: 9, color: C.amber, transition: "transform 0.2s ease-out", transform: subExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                  <span style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: C.muted }}>{T("subExercisesTitle")}</span>
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 11, color: C.amber, fontWeight: 700 }}>{doneIds.length}/{currentTask.subExercises.length} {T("done")}</span>
-                  {!confirmResetSub ? (
+                  {subExpanded && (!confirmResetSub ? (
                     doneIds.length > 0 && (
-                      <button onClick={() => setConfirmResetSub(true)} style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>{T("resetProgress")}</button>
+                      <button onClick={e => { e.stopPropagation(); setConfirmResetSub(true); }} style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>{T("resetProgress")}</button>
                     )
                   ) : (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => setConfirmResetSub(false)} style={{ background: "none", border: "1px solid #333", borderRadius: 6, color: "#888", fontSize: 10, cursor: "pointer", padding: "3px 7px" }}>{T("cancelBtn")}</button>
+                    <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
+                      <button onClick={() => setConfirmResetSub(false)} style={{ background: "none", border: "1px solid #333", borderRadius: 6, color: "#AEB0C0", fontSize: 10, cursor: "pointer", padding: "3px 7px" }}>{T("cancelBtn")}</button>
                       <button onClick={resetSubProgress} style={{ background: "#5A0A0A", border: "1px solid #8A1A1A", borderRadius: 6, color: "#F87171", fontSize: 10, fontWeight: 700, cursor: "pointer", padding: "3px 7px" }}>{T("resetProgressConfirm")}</button>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
-              {currentTask.subExercises.map(sub => {
+              {subExpanded && currentTask.subExercises.map(sub => {
                 const checked = doneIds.includes(sub.id);
                 return (
                   <div key={sub.id} onClick={() => toggleSub(sub.id)}
