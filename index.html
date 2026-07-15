@@ -3905,24 +3905,27 @@ function ActiveSessionScreen({
     style: {
       display: "flex",
       justifyContent: "center",
-      gap: 12,
+      flexWrap: "wrap",
+      rowGap: 10,
+      columnGap: 10,
       marginTop: 18
     }
   }, /*#__PURE__*/React.createElement("button", {
     style: {
       ...base.pillBtn(false),
-      fontSize: 15,
+      fontSize: 13,
+      padding: "9px 13px",
       display: "flex",
       alignItems: "center",
-      gap: 6,
+      gap: 5,
       opacity: current === 0 ? 0.4 : 1,
       cursor: current === 0 ? "default" : "pointer"
     },
     onClick: goBack,
     disabled: current === 0
   }, /*#__PURE__*/React.createElement("svg", {
-    width: "14",
-    height: "14",
+    width: "13",
+    height: "13",
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
@@ -3934,15 +3937,16 @@ function ActiveSessionScreen({
   })), T("previousBtn")), /*#__PURE__*/React.createElement("button", {
     style: {
       ...base.pillBtn(false),
-      fontSize: 15,
+      fontSize: 13,
+      padding: "9px 13px",
       display: "flex",
       alignItems: "center",
-      gap: 6
+      gap: 5
     },
     onClick: skip
   }, T("skipBtn"), /*#__PURE__*/React.createElement("svg", {
-    width: "14",
-    height: "14",
+    width: "13",
+    height: "13",
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
@@ -3955,8 +3959,8 @@ function ActiveSessionScreen({
     style: {
       ...base.pillBtn(true),
       width: "auto",
-      padding: "12px 28px",
-      fontSize: 16,
+      padding: "11px 22px",
+      fontSize: 14,
       background: running ? "linear-gradient(135deg,#34D399,#1F9C6E)" : hasStarted ? "linear-gradient(135deg,#4FC3F7,#1E7EA8)" : `linear-gradient(135deg,${C.amber},#A86020)`
     },
     onClick: () => {

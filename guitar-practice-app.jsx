@@ -1768,22 +1768,22 @@ function ActiveSessionScreen({
           <div style={{ height: 4, background: "#1E1E1E", borderRadius: 2, margin: "14px 0 0", overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${taskPct}%`, background: urgent ? "linear-gradient(90deg,#6B0A0A,#F87171)" : "linear-gradient(90deg,#6B3A0A,#C8873A)", borderRadius: 2, transition: "width 1s linear, background 0.3s" }} />
           </div>
-          <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 18 }}>
+          <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", rowGap: 10, columnGap: 10, marginTop: 18 }}>
             <button
-              style={{ ...base.pillBtn(false), fontSize: 15, display: "flex", alignItems: "center", gap: 6, opacity: current === 0 ? 0.4 : 1, cursor: current === 0 ? "default" : "pointer" }}
+              style={{ ...base.pillBtn(false), fontSize: 13, padding: "9px 13px", display: "flex", alignItems: "center", gap: 5, opacity: current === 0 ? 0.4 : 1, cursor: current === 0 ? "default" : "pointer" }}
               onClick={goBack}
               disabled={current === 0}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               {T("previousBtn")}
             </button>
-            <button style={{ ...base.pillBtn(false), fontSize: 15, display: "flex", alignItems: "center", gap: 6 }} onClick={skip}>
+            <button style={{ ...base.pillBtn(false), fontSize: 13, padding: "9px 13px", display: "flex", alignItems: "center", gap: 5 }} onClick={skip}>
               {T("skipBtn")}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
             <button
               style={{
-                ...base.pillBtn(true), width: "auto", padding: "12px 28px", fontSize: 16,
+                ...base.pillBtn(true), width: "auto", padding: "11px 22px", fontSize: 14,
                 background: running
                   ? "linear-gradient(135deg,#34D399,#1F9C6E)"
                   : hasStarted
