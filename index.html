@@ -225,7 +225,13 @@ const STRINGS = {
     levelReachedLabel: n => `Level ${n}`,
     levelIntro: "Every minute you practice fills your experience gauge — level up as you go.",
     timeToNext: (h, m) => h > 0 ? `${h}h ${m}m until level ` : `${m}m until level `,
-    xpGained: n => `+${n} min`
+    xpGained: n => `+${n} min`,
+    noodleBtn: "🍜 Noodling",
+    noodleTitle: "Time to noodle!",
+    noodleDesc: "Relax and play whatever you want, then head back to your session whenever you feel like it. You keep earning XP, just at half rate!",
+    noodleBackBtn: "↩ Back to session",
+    noodleSessionSuffix: m => ` (incl. ${m}m noodling)`,
+    noodleStatsLabel: "Time spent noodling"
   },
   fr: {
     navLibrary: "Bibliothèque",
@@ -376,7 +382,13 @@ const STRINGS = {
     levelReachedLabel: n => `Niveau ${n}`,
     levelIntro: "Chaque minute de pratique remplit votre jauge d'expérience — montez de niveau au fil du temps.",
     timeToNext: (h, m) => h > 0 ? `${h} h ${m} min avant le niveau ` : `${m} min avant le niveau `,
-    xpGained: n => `+${n} min`
+    xpGained: n => `+${n} min`,
+    noodleBtn: "🍜 Noodling",
+    noodleTitle: "Time to noodle !",
+    noodleDesc: "Détends-toi en jouant ce que tu veux, puis retourne à la séance dès que tu le sens. Tu continues de gagner de l'expérience, mais seulement la moitié !",
+    noodleBackBtn: "↩ Retour à la séance",
+    noodleSessionSuffix: m => ` dont ${m}m à noodler`,
+    noodleStatsLabel: "Temps passé à noodler"
   }
 };
 
@@ -450,7 +462,8 @@ function usePersisted(key, defaultValue) {
 function StatsScreen({
   stats,
   exercises,
-  onClear
+  onClear,
+  noodleSec
 }) {
   const T = useT();
   const lang = useLang();
@@ -480,7 +493,21 @@ function StatsScreen({
       fontSize: 14,
       lineHeight: 1.6
     }
-  }, T("statsEmpty"), /*#__PURE__*/React.createElement("br", null), T("statsEmptySub")));
+  }, T("statsEmpty"), /*#__PURE__*/React.createElement("br", null), T("statsEmptySub")), noodleSec > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 20,
+      background: "#2A2408",
+      border: "1px solid #FBBF2444",
+      borderRadius: 10,
+      padding: "10px 14px",
+      display: "inline-block"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#FBBF24"
+    }
+  }, "🍜 ", T("noodleStatsLabel"), " : ", fmtSec(noodleSec))));
   const totalSessionSec = entries.reduce((s, e) => s + e.totalSec, 0);
   const totalSessions = Math.max(...entries.map(e => e.sessions));
   return /*#__PURE__*/React.createElement("div", {
@@ -529,7 +556,34 @@ function StatsScreen({
       color: "#8D8D9C",
       marginTop: 3
     }
-  }, s.label)))), /*#__PURE__*/React.createElement("div", {
+  }, s.label)))), noodleSec > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      background: "#2A2408",
+      border: "1px solid #FBBF2444",
+      borderRadius: 10,
+      padding: "8px 12px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 16
+    }
+  }, "🍜"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#FBBF24",
+      flex: 1
+    }
+  }, T("noodleStatsLabel")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontFamily: "monospace",
+      fontWeight: 700,
+      color: "#FBBF24"
+    }
+  }, fmtSec(noodleSec))), /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#0D0D0D",
       border: "1px solid #1A1A1A",
@@ -996,6 +1050,12 @@ function badgeIcon(id) {
 }
 function totalPracticeSec(stats) {
   return Object.values(stats).reduce((s, e) => s + (e.totalSec || 0), 0);
+}
+// XP/level basis: scheduled-exercise practice counts in full, noodling counts
+// at half rate. Kept separate from totalPracticeSec (which stays exercise-only
+// and drives badges/"most practiced") so noodling never inflates those.
+function effectiveXpMinutes(stats, noodleSec) {
+  return totalPracticeSec(stats) / 60 + (noodleSec || 0) / 120;
 }
 // Longest run of consecutive calendar days (YYYY-MM-DD strings) present in `days`.
 function longestDayStreak(days) {
@@ -2433,10 +2493,11 @@ function LevelUpCelebration({
 // ─── LEVEL SCREEN ─────────────────────────────────────────────────────────────
 
 function LevelScreen({
-  stats
+  stats,
+  noodleSec
 }) {
   const T = useT();
-  const totalMin = totalPracticeSec(stats) / 60;
+  const totalMin = effectiveXpMinutes(stats, noodleSec);
   const info = levelInfo(totalMin);
   const Icon = INSTRUMENT_ICONS[instrumentForLevel(info.level)];
   const remH = Math.floor(info.remainingMin / 60);
@@ -2506,6 +2567,7 @@ function ProgressionScreen({
   badges,
   subProgress,
   practiceDays,
+  noodleSec,
   subTab,
   setSubTab
 }) {
@@ -2556,11 +2618,13 @@ function ProgressionScreen({
       overflowY: "auto"
     }
   }, subTab === "level" && /*#__PURE__*/React.createElement(LevelScreen, {
-    stats: stats
+    stats: stats,
+    noodleSec: noodleSec
   }), subTab === "stats" && /*#__PURE__*/React.createElement(StatsScreen, {
     stats: stats,
     exercises: exercises,
-    onClear: onClearStats
+    onClear: onClearStats,
+    noodleSec: noodleSec
   }), subTab === "badges" && /*#__PURE__*/React.createElement(BadgesScreen, {
     badges: badges,
     stats: stats,
@@ -3609,6 +3673,8 @@ function ActiveSessionScreen({
   masterGainRef,
   onCommitStats,
   isVisible,
+  onCommitNoodle,
+  sessionNoodleSec,
   subProgress,
   setSubProgress,
   // lifted state
@@ -3636,6 +3702,35 @@ function ActiveSessionScreen({
   const [metroOn, setMetroOn] = useState(false);
   const [liveBpm, setLiveBpm] = useState(90);
   const [liveBeatsPerBar, setLiveBeatsPerBar] = useState(4);
+
+  // ── Noodling: free playing during a session, outside the planned
+  // exercises. Pauses the current exercise's timer, tracks its own elapsed
+  // time (wall-clock based, like the main timer), and commits that time at
+  // half XP rate on return.
+  const [noodling, setNoodling] = useState(false);
+  const [noodleElapsed, setNoodleElapsed] = useState(0);
+  const noodleStartRef = useRef(null);
+  const wasRunningRef = useRef(false);
+  const startNoodling = () => {
+    wasRunningRef.current = running;
+    setRunning(false);
+    noodleStartRef.current = Date.now();
+    setNoodleElapsed(0);
+    setNoodling(true);
+  };
+  const stopNoodling = () => {
+    const sec = Math.floor((Date.now() - noodleStartRef.current) / 1000);
+    setNoodling(false);
+    if (sec >= 1) onCommitNoodle(sec);
+    setRunning(wasRunningRef.current);
+  };
+  useEffect(() => {
+    if (!noodling) return;
+    const id = setInterval(() => {
+      setNoodleElapsed(Math.floor((Date.now() - noodleStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [noodling]);
 
   // Metronome is available on every exercise, independent of the library's
   // default BPM setting. Each new exercise starts with the toggle off, seeded
@@ -3869,7 +3964,7 @@ function ActiveSessionScreen({
       lineHeight: 1.7,
       marginBottom: 6
     }
-  }, T("exercisesCount", tasks.length), " · ", formatTotalMin(totalSec)), /*#__PURE__*/React.createElement("div", {
+  }, T("exercisesCount", tasks.length), " · ", formatTotalMin(totalSec), sessionNoodleSec > 0 && T("noodleSessionSuffix", Math.round(sessionNoodleSec / 60))), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "#8FAF8F",
@@ -3885,6 +3980,64 @@ function ActiveSessionScreen({
     },
     onClick: onBackToMenu
   }, T("mainMenu"))));
+  if (noodling) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      padding: "14px 16px 24px",
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 14,
+      background: "linear-gradient(135deg,#2A2408,#1A1608)",
+      border: "2px solid #FBBF2466",
+      borderRadius: 20,
+      padding: "32px 24px",
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 72
+    }
+  }, "🍜"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 19,
+      fontWeight: 800,
+      color: "#FBBF24",
+      letterSpacing: "0.02em"
+    }
+  }, T("noodleTitle")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.cream,
+      lineHeight: 1.7,
+      maxWidth: 300
+    }
+  }, T("noodleDesc")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 40,
+      fontFamily: "monospace",
+      fontWeight: 700,
+      color: "#FBBF24"
+    }
+  }, formatTime(noodleElapsed))), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...base.pillBtn(true),
+      marginTop: 16,
+      background: "linear-gradient(135deg,#FBBF24,#B8860B)",
+      color: "#1A1608",
+      flexShrink: 0
+    },
+    onClick: stopNoodling
+  }, T("noodleBackBtn")));
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("style", null, `
         @keyframes urgentPulse{0%,100%{color:#C8873A}50%{color:#F87171;text-shadow:0 0 16px #F8717188}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -4027,7 +4180,20 @@ function ActiveSessionScreen({
       setRunning(r => !r);
       setHasStarted(true);
     }
-  }, running ? T("pauseBtn") : hasStarted ? T("resumePlayBtn") : T("playBtn"))), /*#__PURE__*/React.createElement("div", {
+  }, running ? T("pauseBtn") : hasStarted ? T("resumePlayBtn") : T("playBtn")), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...base.pillBtn(false),
+      fontSize: 13,
+      padding: "9px 13px",
+      display: "flex",
+      alignItems: "center",
+      gap: 5,
+      color: "#FBBF24",
+      border: "1px solid #FBBF2455",
+      background: "#FBBF2418"
+    },
+    onClick: startNoodling
+  }, T("noodleBtn"))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       display: "flex",
@@ -5401,6 +5567,13 @@ function App() {
   // Calendar days (YYYY-MM-DD, deduped) on which at least one exercise was
   // practiced, used for the "3-day streak" badge.
   const [practiceDays, setPracticeDays] = usePersisted("practiceDays", []);
+  // Lifetime total seconds spent "noodling" (free playing during a session,
+  // outside the planned exercises). Counted in full for the stat shown in
+  // Progression/session-end, but only at half rate towards XP/level.
+  const [noodleSec, setNoodleSec] = usePersisted("noodleSec", 0);
+  // Noodling time for the session currently in progress, shown in the
+  // end-of-session summary. Reset whenever a session starts/ends.
+  const [sessionNoodleSec, setSessionNoodleSec] = useState(0);
   // Queue of badge ids waiting to show their unlock celebration, so unlocking
   // several at once still shows them one at a time instead of overlapping.
   const [badgeCelebrationQueue, setBadgeCelebrationQueue] = useState([]);
@@ -5432,7 +5605,7 @@ function App() {
     // can be computed directly here — no need to wait for the stats update to
     // land, and no risk of falsely firing on initial load (this only ever
     // runs from a real practice-time commit, never from a stats-load effect).
-    const beforeMin = totalPracticeSec(stats) / 60;
+    const beforeMin = effectiveXpMinutes(stats, noodleSec);
     const afterMin = beforeMin + elapsedSec / 60;
     const beforeLevel = levelFromMinutes(beforeMin);
     const afterLevel = levelFromMinutes(afterMin);
@@ -5466,7 +5639,28 @@ function App() {
     });
     const today = todayStr();
     setPracticeDays(prev => prev.includes(today) ? prev : [...prev, today]);
-  }, [stats, setStats, setPracticeDays]);
+  }, [stats, noodleSec, setStats, setPracticeDays]);
+
+  // Noodling: free playing during a session, tracked separately from any
+  // exercise. Time is counted in full towards the noodle stat, but only at
+  // half rate towards XP/level (see effectiveXpMinutes).
+  const commitNoodleTime = useCallback(sec => {
+    if (sec < 1) return;
+    const beforeMin = effectiveXpMinutes(stats, noodleSec);
+    const afterMin = beforeMin + sec / 2 / 60;
+    const beforeLevel = levelFromMinutes(beforeMin);
+    const afterLevel = levelFromMinutes(afterMin);
+    setXpGain({
+      id: uid(),
+      beforeMin,
+      afterMin
+    });
+    if (afterLevel > beforeLevel) {
+      setLevelUpQueue(q => [...q, afterLevel]);
+    }
+    setNoodleSec(prev => prev + Math.round(sec));
+    setSessionNoodleSec(prev => prev + Math.round(sec));
+  }, [stats, noodleSec, setNoodleSec]);
 
   // Check every badge's unlock condition whenever the stats it depends on
   // change. Newly-met goals are persisted immediately and queued for a
@@ -5543,6 +5737,7 @@ function App() {
     setSessionRunning(false);
     setSessionHasStarted(false);
     setSessionDone(false);
+    setSessionNoodleSec(0);
     sessionElapsedRef.current = 0;
     sessionCommittedRef.current = new Set();
     setSessionActive(true);
@@ -5554,6 +5749,7 @@ function App() {
     setSessionDone(false);
     setSessionHasStarted(false);
     setSessionCurrent(0);
+    setSessionNoodleSec(0);
     sessionElapsedRef.current = 0;
     sessionCommittedRef.current = new Set();
     setTab("session");
@@ -5564,6 +5760,7 @@ function App() {
     setSessionDone(false);
     setSessionHasStarted(false);
     setSessionCurrent(0);
+    setSessionNoodleSec(0);
     sessionElapsedRef.current = 0;
     sessionCommittedRef.current = new Set();
     setTab("library");
@@ -5576,7 +5773,7 @@ function App() {
   // renders). Translate directly from its own `lang` state instead.
   const T = (key, ...args) => translate(lang, key, ...args);
   const sessionInProgress = sessionActive && !sessionDone;
-  const currentLevel = levelFromMinutes(totalPracticeSec(stats) / 60);
+  const currentLevel = levelFromMinutes(effectiveXpMinutes(stats, noodleSec));
   const unlockedBadgeCount = Object.keys(badges).length;
   const sessionTabActive = tab === "session" || tab === "active";
   // CSS `zoom` magnifies the rendered box beyond its own layout size, so a
@@ -5727,6 +5924,7 @@ function App() {
     badges: badges,
     subProgress: subProgress,
     practiceDays: practiceDays,
+    noodleSec: noodleSec,
     subTab: progressSubTab,
     setSubTab: setProgressSubTab
   }), tab === "settings" && /*#__PURE__*/React.createElement(SettingsScreen, {
@@ -5749,6 +5947,8 @@ function App() {
     audioCtx: audioCtx,
     masterGainRef: masterGainRef,
     onCommitStats: commitStats,
+    onCommitNoodle: commitNoodleTime,
+    sessionNoodleSec: sessionNoodleSec,
     isVisible: tab === "active",
     subProgress: subProgress,
     setSubProgress: setSubProgress,

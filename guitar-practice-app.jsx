@@ -67,6 +67,12 @@ const STRINGS = {
     levelIntro: "Every minute you practice fills your experience gauge — level up as you go.",
     timeToNext: (h, m) => h > 0 ? `${h}h ${m}m until level ` : `${m}m until level `,
     xpGained: (n) => `+${n} min`,
+    noodleBtn: "🍜 Noodling",
+    noodleTitle: "Time to noodle!",
+    noodleDesc: "Relax and play whatever you want, then head back to your session whenever you feel like it. You keep earning XP, just at half rate!",
+    noodleBackBtn: "↩ Back to session",
+    noodleSessionSuffix: (m) => ` (incl. ${m}m noodling)`,
+    noodleStatsLabel: "Time spent noodling",
   },
   fr: {
     navLibrary: "Bibliothèque", navPresets: "Modèles", navSession: "Séance", navActive: "▶ En cours",
@@ -132,6 +138,12 @@ const STRINGS = {
     levelIntro: "Chaque minute de pratique remplit votre jauge d'expérience — montez de niveau au fil du temps.",
     timeToNext: (h, m) => h > 0 ? `${h} h ${m} min avant le niveau ` : `${m} min avant le niveau `,
     xpGained: (n) => `+${n} min`,
+    noodleBtn: "🍜 Noodling",
+    noodleTitle: "Time to noodle !",
+    noodleDesc: "Détends-toi en jouant ce que tu veux, puis retourne à la séance dès que tu le sens. Tu continues de gagner de l'expérience, mais seulement la moitié !",
+    noodleBackBtn: "↩ Retour à la séance",
+    noodleSessionSuffix: (m) => ` dont ${m}m à noodler`,
+    noodleStatsLabel: "Temps passé à noodler",
   },
 };
 
@@ -197,7 +209,7 @@ function usePersisted(key, defaultValue) {
 // ─── STATS SCREEN ─────────────────────────────────────────────────────────────
 // stats shape: { [exerciseId]: { name, icon, totalSec, sessions } }
 
-function StatsScreen({ stats, exercises, onClear }) {
+function StatsScreen({ stats, exercises, onClear, noodleSec }) {
   const T = useT();
   const lang = useLang();
   const [confirmClear, setConfirmClear] = useState(false);
@@ -221,6 +233,11 @@ function StatsScreen({ stats, exercises, onClear }) {
       <div style={{ fontSize: 14, lineHeight: 1.6 }}>
         {T("statsEmpty")}<br />{T("statsEmptySub")}
       </div>
+      {noodleSec > 0 && (
+        <div style={{ marginTop: 20, background: "#2A2408", border: "1px solid #FBBF2444", borderRadius: 10, padding: "10px 14px", display: "inline-block" }}>
+          <span style={{ fontSize: 12, color: "#FBBF24" }}>🍜 {T("noodleStatsLabel")} : {fmtSec(noodleSec)}</span>
+        </div>
+      )}
     </div>
   );
 
@@ -242,6 +259,14 @@ function StatsScreen({ stats, exercises, onClear }) {
           </div>
         ))}
       </div>
+
+      {noodleSec > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#2A2408", border: "1px solid #FBBF2444", borderRadius: 10, padding: "8px 12px" }}>
+          <span style={{ fontSize: 16 }}>🍜</span>
+          <span style={{ fontSize: 12, color: "#FBBF24", flex: 1 }}>{T("noodleStatsLabel")}</span>
+          <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: "#FBBF24" }}>{fmtSec(noodleSec)}</span>
+        </div>
+      )}
 
       {/* Per-exercise bars */}
       <div style={{ background: "#0D0D0D", border: "1px solid #1A1A1A", borderRadius: 12, overflow: "hidden" }}>
@@ -552,6 +577,12 @@ function badgeIcon(id) {
 
 function totalPracticeSec(stats) {
   return Object.values(stats).reduce((s, e) => s + (e.totalSec || 0), 0);
+}
+// XP/level basis: scheduled-exercise practice counts in full, noodling counts
+// at half rate. Kept separate from totalPracticeSec (which stays exercise-only
+// and drives badges/"most practiced") so noodling never inflates those.
+function effectiveXpMinutes(stats, noodleSec) {
+  return totalPracticeSec(stats) / 60 + (noodleSec || 0) / 120;
 }
 // Longest run of consecutive calendar days (YYYY-MM-DD strings) present in `days`.
 function longestDayStreak(days) {
@@ -1056,9 +1087,9 @@ function LevelUpCelebration({ level, onDone }) {
 
 // ─── LEVEL SCREEN ─────────────────────────────────────────────────────────────
 
-function LevelScreen({ stats }) {
+function LevelScreen({ stats, noodleSec }) {
   const T = useT();
-  const totalMin = totalPracticeSec(stats) / 60;
+  const totalMin = effectiveXpMinutes(stats, noodleSec);
   const info = levelInfo(totalMin);
   const Icon = INSTRUMENT_ICONS[instrumentForLevel(info.level)];
   const remH = Math.floor(info.remainingMin / 60);
@@ -1085,7 +1116,7 @@ function LevelScreen({ stats }) {
 
 // ─── PROGRESSION SCREEN (Niveau / Stats / Badges, merged under sub-tabs) ──────
 
-function ProgressionScreen({ stats, exercises, onClearStats, badges, subProgress, practiceDays, subTab, setSubTab }) {
+function ProgressionScreen({ stats, exercises, onClearStats, badges, subProgress, practiceDays, noodleSec, subTab, setSubTab }) {
   const T = useT();
   const TABS = [
     { id: "level",  label: T("progressTabLevel") },
@@ -1113,8 +1144,8 @@ function ProgressionScreen({ stats, exercises, onClearStats, badges, subProgress
         ))}
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        {subTab === "level"  && <LevelScreen stats={stats} />}
-        {subTab === "stats"  && <StatsScreen stats={stats} exercises={exercises} onClear={onClearStats} />}
+        {subTab === "level"  && <LevelScreen stats={stats} noodleSec={noodleSec} />}
+        {subTab === "stats"  && <StatsScreen stats={stats} exercises={exercises} onClear={onClearStats} noodleSec={noodleSec} />}
         {subTab === "badges" && <BadgesScreen badges={badges} stats={stats} subProgress={subProgress} exercises={exercises} practiceDays={practiceDays} />}
       </div>
     </div>
@@ -1552,6 +1583,7 @@ function SessionScreen({ tasks, setTasks, onStart, sessionInProgress, onReturnTo
 
 function ActiveSessionScreen({
   tasks, setTasks, onFinish, onBackToMenu, audioCtx, masterGainRef, onCommitStats, isVisible,
+  onCommitNoodle, sessionNoodleSec,
   subProgress, setSubProgress,
   // lifted state
   current, setCurrent, secondsLeft, setSecondsLeft,
@@ -1569,6 +1601,36 @@ function ActiveSessionScreen({
   const [metroOn, setMetroOn] = useState(false);
   const [liveBpm, setLiveBpm] = useState(90);
   const [liveBeatsPerBar, setLiveBeatsPerBar] = useState(4);
+
+  // ── Noodling: free playing during a session, outside the planned
+  // exercises. Pauses the current exercise's timer, tracks its own elapsed
+  // time (wall-clock based, like the main timer), and commits that time at
+  // half XP rate on return.
+  const [noodling, setNoodling] = useState(false);
+  const [noodleElapsed, setNoodleElapsed] = useState(0);
+  const noodleStartRef = useRef(null);
+  const wasRunningRef = useRef(false);
+
+  const startNoodling = () => {
+    wasRunningRef.current = running;
+    setRunning(false);
+    noodleStartRef.current = Date.now();
+    setNoodleElapsed(0);
+    setNoodling(true);
+  };
+  const stopNoodling = () => {
+    const sec = Math.floor((Date.now() - noodleStartRef.current) / 1000);
+    setNoodling(false);
+    if (sec >= 1) onCommitNoodle(sec);
+    setRunning(wasRunningRef.current);
+  };
+  useEffect(() => {
+    if (!noodling) return;
+    const id = setInterval(() => {
+      setNoodleElapsed(Math.floor((Date.now() - noodleStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [noodling]);
 
   // Metronome is available on every exercise, independent of the library's
   // default BPM setting. Each new exercise starts with the toggle off, seeded
@@ -1765,6 +1827,7 @@ function ActiveSessionScreen({
         <div style={{ fontSize: 22, fontWeight: 800, color: C.amber, marginBottom: 8, animation: "glowPulse 2s ease-in-out infinite" }}>{T("sessionComplete")}</div>
         <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.7, marginBottom: 6 }}>
           {T("exercisesCount", tasks.length)} · {formatTotalMin(totalSec)}
+          {sessionNoodleSec > 0 && T("noodleSessionSuffix", Math.round(sessionNoodleSec / 60))}
         </div>
         <div style={{ fontSize: 11, color: "#8FAF8F", marginBottom: 28 }}>{T("consistency")}</div>
         <button style={base.pillBtn(true)} onClick={onFinish}>{T("backToSession")}</button>
@@ -1772,6 +1835,21 @@ function ActiveSessionScreen({
         <button style={{ ...base.pillBtn(false), width: "100%" }} onClick={onBackToMenu}>{T("mainMenu")}</button>
       </div>
     </>
+  );
+
+  if (noodling) return (
+    <div style={{ flex: 1, minHeight: 0, padding: "14px 16px 24px", display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
+        background: "linear-gradient(135deg,#2A2408,#1A1608)", border: "2px solid #FBBF2466", borderRadius: 20, padding: "32px 24px", textAlign: "center" }}>
+        <div style={{ fontSize: 72 }}>🍜</div>
+        <div style={{ fontSize: 19, fontWeight: 800, color: "#FBBF24", letterSpacing: "0.02em" }}>{T("noodleTitle")}</div>
+        <div style={{ fontSize: 13, color: C.cream, lineHeight: 1.7, maxWidth: 300 }}>{T("noodleDesc")}</div>
+        <div style={{ fontSize: 40, fontFamily: "monospace", fontWeight: 700, color: "#FBBF24" }}>{formatTime(noodleElapsed)}</div>
+      </div>
+      <button style={{ ...base.pillBtn(true), marginTop: 16, background: "linear-gradient(135deg,#FBBF24,#B8860B)", color: "#1A1608", flexShrink: 0 }} onClick={stopNoodling}>
+        {T("noodleBackBtn")}
+      </button>
+    </div>
   );
 
   return (
@@ -1822,6 +1900,12 @@ function ActiveSessionScreen({
               onClick={() => { setRunning(r => !r); setHasStarted(true); }}
             >
               {running ? T("pauseBtn") : hasStarted ? T("resumePlayBtn") : T("playBtn")}
+            </button>
+            <button
+              style={{ ...base.pillBtn(false), fontSize: 13, padding: "9px 13px", display: "flex", alignItems: "center", gap: 5, color: "#FBBF24", border: "1px solid #FBBF2455", background: "#FBBF2418" }}
+              onClick={startNoodling}
+            >
+              {T("noodleBtn")}
             </button>
           </div>
           {/* Metronome — on/off toggle always available; BPM & time signature
@@ -2399,6 +2483,13 @@ export default function App() {
   // Calendar days (YYYY-MM-DD, deduped) on which at least one exercise was
   // practiced, used for the "3-day streak" badge.
   const [practiceDays, setPracticeDays] = usePersisted("practiceDays", []);
+  // Lifetime total seconds spent "noodling" (free playing during a session,
+  // outside the planned exercises). Counted in full for the stat shown in
+  // Progression/session-end, but only at half rate towards XP/level.
+  const [noodleSec, setNoodleSec] = usePersisted("noodleSec", 0);
+  // Noodling time for the session currently in progress, shown in the
+  // end-of-session summary. Reset whenever a session starts/ends.
+  const [sessionNoodleSec, setSessionNoodleSec] = useState(0);
   // Queue of badge ids waiting to show their unlock celebration, so unlocking
   // several at once still shows them one at a time instead of overlapping.
   const [badgeCelebrationQueue, setBadgeCelebrationQueue] = useState([]);
@@ -2431,7 +2522,7 @@ export default function App() {
     // can be computed directly here — no need to wait for the stats update to
     // land, and no risk of falsely firing on initial load (this only ever
     // runs from a real practice-time commit, never from a stats-load effect).
-    const beforeMin = totalPracticeSec(stats) / 60;
+    const beforeMin = effectiveXpMinutes(stats, noodleSec);
     const afterMin  = beforeMin + elapsedSec / 60;
     const beforeLevel = levelFromMinutes(beforeMin);
     const afterLevel  = levelFromMinutes(afterMin);
@@ -2455,7 +2546,24 @@ export default function App() {
     });
     const today = todayStr();
     setPracticeDays(prev => (prev.includes(today) ? prev : [...prev, today]));
-  }, [stats, setStats, setPracticeDays]);
+  }, [stats, noodleSec, setStats, setPracticeDays]);
+
+  // Noodling: free playing during a session, tracked separately from any
+  // exercise. Time is counted in full towards the noodle stat, but only at
+  // half rate towards XP/level (see effectiveXpMinutes).
+  const commitNoodleTime = useCallback((sec) => {
+    if (sec < 1) return;
+    const beforeMin = effectiveXpMinutes(stats, noodleSec);
+    const afterMin  = beforeMin + (sec / 2) / 60;
+    const beforeLevel = levelFromMinutes(beforeMin);
+    const afterLevel  = levelFromMinutes(afterMin);
+    setXpGain({ id: uid(), beforeMin, afterMin });
+    if (afterLevel > beforeLevel) {
+      setLevelUpQueue(q => [...q, afterLevel]);
+    }
+    setNoodleSec(prev => prev + Math.round(sec));
+    setSessionNoodleSec(prev => prev + Math.round(sec));
+  }, [stats, noodleSec, setNoodleSec]);
 
   // Check every badge's unlock condition whenever the stats it depends on
   // change. Newly-met goals are persisted immediately and queued for a
@@ -2515,6 +2623,7 @@ export default function App() {
     setSessionRunning(false);
     setSessionHasStarted(false);
     setSessionDone(false);
+    setSessionNoodleSec(0);
     sessionElapsedRef.current = 0;
     sessionCommittedRef.current = new Set();
     setSessionActive(true);
@@ -2527,6 +2636,7 @@ export default function App() {
     setSessionDone(false);
     setSessionHasStarted(false);
     setSessionCurrent(0);
+    setSessionNoodleSec(0);
     sessionElapsedRef.current = 0;
     sessionCommittedRef.current = new Set();
     setTab("session");
@@ -2538,6 +2648,7 @@ export default function App() {
     setSessionDone(false);
     setSessionHasStarted(false);
     setSessionCurrent(0);
+    setSessionNoodleSec(0);
     sessionElapsedRef.current = 0;
     sessionCommittedRef.current = new Set();
     setTab("library");
@@ -2551,7 +2662,7 @@ export default function App() {
   // renders). Translate directly from its own `lang` state instead.
   const T = (key, ...args) => translate(lang, key, ...args);
   const sessionInProgress = sessionActive && !sessionDone;
-  const currentLevel = levelFromMinutes(totalPracticeSec(stats) / 60);
+  const currentLevel = levelFromMinutes(effectiveXpMinutes(stats, noodleSec));
   const unlockedBadgeCount = Object.keys(badges).length;
   const sessionTabActive = tab === "session" || tab === "active";
   // CSS `zoom` magnifies the rendered box beyond its own layout size, so a
@@ -2618,11 +2729,12 @@ export default function App() {
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {tab === "library"  && <LibraryScreen exercises={exercises} categories={categories} tasks={tasks} onAdd={addExercise} onRemove={removeExerciseFromSession} stats={stats} subProgress={subProgress} />}
       {tab === "session"  && <SessionScreen tasks={tasks} setTasks={setTasks} onStart={startSession} sessionInProgress={sessionInProgress} onReturnToSession={returnToSession} presets={presets} setPresets={setPresets} />}
-      {tab === "progress" && <ProgressionScreen stats={stats} exercises={exercises} onClearStats={() => setStats({})} badges={badges} subProgress={subProgress} practiceDays={practiceDays} subTab={progressSubTab} setSubTab={setProgressSubTab} />}
+      {tab === "progress" && <ProgressionScreen stats={stats} exercises={exercises} onClearStats={() => setStats({})} badges={badges} subProgress={subProgress} practiceDays={practiceDays} noodleSec={noodleSec} subTab={progressSubTab} setSubTab={setProgressSubTab} />}
       {tab === "settings" && <SettingsScreen exercises={exercises} setExercises={setExercises} categories={categories} setCategories={setCategories} volume={volume} onVolumeChange={setVolume} lang={lang} onLangChange={setLang} displaySize={displaySize} onDisplaySizeChange={setDisplaySize} onResetBadges={() => setBadges({})} />}
       {tab === "active"   && <ActiveSessionScreen
         tasks={tasks} setTasks={setTasks} onFinish={endSession} onBackToMenu={backToMenu}
         audioCtx={audioCtx} masterGainRef={masterGainRef} onCommitStats={commitStats}
+        onCommitNoodle={commitNoodleTime} sessionNoodleSec={sessionNoodleSec}
         isVisible={tab === "active"}
         subProgress={subProgress} setSubProgress={setSubProgress}
         current={sessionCurrent} setCurrent={setSessionCurrent}
